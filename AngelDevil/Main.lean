@@ -1,0 +1,484 @@
+import Mathlib.Data.Fin.Basic
+import Mathlib.Data.List.Basic
+import Mathlib.Tactic.Linarith
+import Mathlib.Tactic.Ring
+import AngelDevil.Reduced
+import AngelDevil.Focused
+
+set_option linter.style.longLine false
+set_option linter.style.multiGoal false
+
+/-
+  This file contains the most significant results from Máthé's paper,
+  including the final result: that the Angel of power 2 wins.
+-/
+
+-- We can set a lower bound on the length of a journey based on
+-- how far from the origin the angel has moved
+lemma journey_lb {p : Nat} (A : Journey p) (N : Nat) : p * N < dist (0, 0) (last A) → N < steps A := by
+  intro h
+  -- Prove that steps ≠ 0
+  have snz : steps A ≠ 0 := by
+    intro sz
+    rw [last, cell_congr_idx A sz (Nat.lt_add_one _), journey_start, dist_self] at h
+    exact Nat.not_lt_zero _ h
+  -- Prove a trivial but useful upper bound on steps A - 1
+  have splt : steps A - 1 < steps A + 1 :=
+    Nat.sub_one_lt_of_le (Nat.pos_of_ne_zero snz) (Nat.le_of_lt (Nat.lt_add_one _))
+  by_cases Nz : N = 0
+  · subst Nz
+    exact Nat.pos_of_ne_zero snz
+  rename' Nz => Nnz; push_neg at Nnz
+  -- Show that the antecedant holds for N-1
+  -- This is essentially the induction step
+  have hlb : p * (N - 1) < dist (0, 0) (last (subjourney A (steps A - 1) splt)) := by
+    contrapose! h
+    replace h := (Nat.mul_add_one _ _) ▸ (add_le_add_right h p)
+    rw [subjourney_last_cell, Nat.sub_one_add_one Nnz] at h
+    apply le_trans _ h
+    calc
+      dist (0, 0) (last A) ≤ dist (0, 0) (cell A (steps A - 1) splt) + dist (cell A (steps A - 1) splt) (last A) := by
+        apply dist_tri
+      _ ≤ dist (0, 0) (cell A (steps A - 1) splt) + p := by
+        apply Nat.add_le_add_left
+        convert journey_steps_close A (steps A - 1) (Nat.sub_one_lt snz)
+        rw [last]; congr
+        exact (Nat.sub_one_add_one snz).symm
+  -- Apply 'journey_lb' recursively
+  have := (journey_lb (subjourney A (steps A - 1) splt) (N-1)) hlb
+  rw [subjourney_steps] at this
+  -- Add one to both sides and cancel to close the goal
+  apply Nat.add_one_lt_add_one_iff.mpr at this
+  rwa [Nat.sub_one_add_one snz, Nat.sub_one_add_one Nnz] at this
+
+/- Indicates that devil 'D' traps any angel of power 'p' within a square of
+   size (2N+1) centered on the origin. I will occasionally refer to this as
+   the "escape square", since in order to win an angel will need to succeed
+   in escaping that square -/
+def traps_in_square (D : Devil) (p N : Nat) : Prop :=
+  ∀ (A : Journey p), N < dist (0, 0) (last A) → ¬allowed D A
+
+/- An alternative definition of the devil's victory criterion based on the
+   idea of trapping an angel of power 'p' in a square centered on the origin.
+   We will prove that our two definitions are equivalent. -/
+def devil_wins' (D : Devil) (p : Nat) : Prop := ∃ N, traps_in_square D p N
+
+abbrev outside_fun {p : Nat} (A : Journey p) (N : Nat) : Fin (steps A + 1) → Prop :=
+  fun i ↦ N < dist (0, 0) (cell A i.1 i.2)
+
+/- If a devil wins by the alternate definition, then any angel of power 'p'
+   that ends its journey outside the "escape square" must be caught somewhere
+   inside the "extended perimeter": the square of size 2(N+p) + 1 centered
+   at the origin. -/
+-- TODO: Consider switching back to 'Fin' for antecedents in some cases to avoid
+-- having to express conjuntions as implications
+lemma extended_perimeter (D : Devil) (p : Nat) (N : Nat) (htraps : traps_in_square D p N) (A : Journey p) :
+  N < dist (0, 0) (last A) →
+  ∃ i j, ¬((ilt : i < j) → (jlt : j < steps A + 1) →
+  (dist (0, 0) (cell A j jlt) ≤ N + p → response D (subjourney A i (lt_trans ilt jlt)) ≠ cell A j jlt)) := by
+  intro Nlt
+  unfold traps_in_square allowed at htraps
+  -- Prove that steps A ≠ 0
+  have snz : steps A ≠ 0 := by
+    intro h
+    rw [last, cell_congr_idx A h (Nat.lt_add_one _), journey_start, dist_self] at Nlt
+    exact not_lt_zero' Nlt
+  -- Get the index of the first cell outside the escape square (call it 'k')
+  let k := (_find_first (outside_fun A N))
+  -- The kth cell is in-fact outside the escape square
+  have ksat : N < dist (0, 0) (last (subjourney A k.val k.2)) := by
+    rw [subjourney_last_cell]
+    exact _find_first_is_sat (outside_fun A N) ⟨⟨steps A, Nat.lt_add_one _⟩, Nlt⟩
+  -- The kth cell is the *first* step outside the escape square
+  have kfirst : ∀ i (ilt : i < steps A + 1),
+    N < dist (0, 0) (cell A i ilt) → k.val ≤ i := by
+    intro i ilt houtside
+    exact Fin.le_iff_val_le_val.mp (_find_first_is_first (outside_fun A N) ⟨i, ilt⟩ houtside)
+  -- Handle the case where the first step outside the escape square
+  -- is not the last step of the journey.
+  by_cases knl : k.val ≠ steps A
+  · -- We can solve the goal by recursion because k < steps A
+    rcases extended_perimeter D p N htraps (subjourney A k.1 k.2) ksat with ⟨i, j, h⟩
+    push_neg at h
+    rcases h with ⟨ilt, jlt, hinside, hcaught⟩
+    rw [subjourney_steps] at jlt
+    rw [subjourney_cell] at hinside
+    rw [subjourney_subjourney, subjourney_cell] at hcaught
+    use i, j; push_neg
+    use ilt, lt_trans jlt
+      (Nat.add_one_lt_add_one_iff.mpr (Nat.lt_of_le_of_ne (Nat.le_of_lt_add_one k.2) knl))
+    -- Prove pending bounds checks
+    · exact Nat.le_of_lt_add_one jlt
+    · exact lt_trans ilt jlt
+    · exact Nat.le_of_lt_add_one jlt
+  rename' knl => hkl; push_neg at hkl
+  -- Use 'htraps' to reduce the goal to proving that step 'j'
+  -- is inside the extended perimeter.
+  have h := htraps A Nlt
+  push_neg at h
+  rcases h with ⟨i, j, ilt, jlt, hcaught⟩
+  use i, j; push_neg
+  use ilt, jlt
+  apply And.intro _ hcaught
+  -- Handle the case where step 'j' is inside the escape square
+  -- In that case it is trivial to show step 'j' is also inside
+  -- the extended perimeter.
+  by_cases hinside : dist (0, 0) (cell A j jlt) ≤ N
+  · exact le_trans hinside (Nat.le_add_right N p)
+  rename' hinside => houtside; push_neg at houtside
+  -- If j ≠ steps A, we reach a contradiction, since 'k' should be the first
+  -- step outside the square
+  by_cases jnl : j ≠ steps A
+  · have jlt' : j < k :=
+      Nat.lt_of_lt_of_eq (Nat.lt_of_le_of_ne (Nat.le_of_lt_add_one jlt) jnl) hkl.symm
+    exact False.elim ((not_lt_of_ge (kfirst j jlt houtside)) jlt')
+  rename' jnl => hjl; push_neg at hjl
+  rw [cell_congr_idx A hjl jlt]
+  -- Show that the second-to-last step of the journey is still inside the
+  -- escape square
+  have spltss := Nat.lt_of_le_of_lt (Nat.sub_le (steps A) 1) (Nat.lt_add_one _)
+  have hinside : dist (0, 0) (cell A (steps A - 1) spltss) ≤ N := by
+    by_contra! h
+    apply Nat.lt_irrefl (steps A)
+    have := Nat.lt_add_one_of_le (kfirst (steps A - 1) spltss h)
+    rwa [hkl, Nat.sub_one_add_one snz] at this
+  -- Use 'journey_steps_close' and 'dist_tri' to show that the first step outside
+  -- the escape square is still inside the extended perimeter
+  calc
+    dist (0, 0) (last A) ≤ dist (0, 0) (cell A (steps A - 1) spltss) +
+                                 dist (cell A (steps A - 1) spltss) (last A) := dist_tri _ _ _
+    _ ≤ N + dist (cell A (steps A - 1) spltss) (last A) := Nat.add_le_add_right hinside _
+    _ ≤ N + p := by
+      apply Nat.add_le_add_left
+      convert journey_steps_close A (steps A - 1) (Nat.sub_one_lt snz)
+      rw [last]; congr
+      exact (Nat.sub_one_add_one snz).symm
+termination_by (steps A)
+decreasing_by
+  rw [subjourney_steps]
+  exact Nat.lt_of_le_of_ne (Nat.le_of_lt_add_one ((_find_first (outside_fun A N)).2)) knl
+
+-- Prove that our two definitions of devil victory are equivalent
+lemma devil_wins_equiv (p : Nat) :
+  (∃ D : Devil, devil_wins D p) ↔ (∃ D : Devil, devil_wins' D p) := by
+  constructor
+  · -- The forward direction is a simple application of the lower bound
+    -- on steps, proven in 'journey_lb'.
+    rintro ⟨D, N, htraps⟩
+    exact ⟨D, p * N, fun A distlb ↦ htraps A (journey_lb A N distlb)⟩
+  · -- The reverse direction is more complicating and involves showing
+    -- that a "focused" devil can both trap the angel in a region around the
+    -- origin and eventually eat every available cell.
+    rintro ⟨D, N, htraps⟩
+    let N' := (2*(N+p) + 1)^2
+    let D' := make_focused D (N+p)
+    use D', N'
+    intro A N'lt
+    unfold allowed; push_neg
+    -- Did the angel end its journey within the "escape square", or outside?
+    by_cases houtside : N < dist (0, 0) (last A)
+    · -- If outside, it must have been caught somewhere within the "extended perimeter"
+      rcases extended_perimeter D p N htraps A houtside with ⟨i, j, h⟩; push_neg at h
+      rcases h with ⟨ilt, jlt, hinsidex, hcaught⟩
+      -- Show that the angel would fare no better against the focused variant of D
+      -- (would be caught at the same cell on or before the same turn)
+      rcases (hcaught ▸ (focused_is_dominant D (N+p) p A i (lt_trans ilt jlt))) hinsidex with ⟨i', h⟩; push_neg at h
+      rcases h with ⟨i'le, hcaught'⟩
+      exact ⟨i', j, Nat.lt_of_le_of_lt i'le ilt, jlt, hcaught'⟩
+    · rename' houtside => hinside; push_neg at hinside
+      -- If the angel doesn't leave the escape square, it will eventually be caught
+      -- as every available cell is eaten.
+      have hclose := close_of_le_of_close N (N+p) (0, 0) (last A) (Nat.le_add_right N p) hinside
+      have hfocused := make_focused_is_focused D (N+p)
+      -- The angel will definitely be caught on its last turn
+      -- (though it may also be caught before then)
+      have N'lt' : N' ≤ steps A + 1 := Nat.le_of_lt (lt_trans N'lt (Nat.lt_add_one _))
+      rcases focused_eats_all_close D' p (N+p) hfocused A N'lt' (last A) hclose with ⟨i, h⟩; push_neg at h
+      rcases h with ⟨ilt, hcaught⟩
+      exact ⟨i, steps A, lt_trans ilt N'lt, Nat.lt_add_one _ , hcaught⟩
+
+/- Theorem 8.1 (Conway)
+   "It does no damage to the Angel’s prospects if we require him after each move to
+    eat away every square that he could have landed on at that move, but didn’t."
+
+   We formalize this as follows: If the devil doesn't win, then for every devil
+   'D' and natural number 'N', there exists an efficient, allowed journey
+   longer than N.
+
+   The idea for proving this theorem is to show that if there is a devil
+   who can catch any efficient angel, we can construct a devil which can catch
+   every angel of that power.
+-/
+theorem JC8_1 (p : Nat) : ¬(∃ D : Devil, devil_wins D p) → ∀ D : Devil, ∀ N : Nat, ∃ A : Journey p,
+  N < steps A ∧ efficient A ∧ allowed D A := by
+  intro h
+  contrapose! h
+  -- Proof by contradiction:
+  -- Suppose there is a devil, D, that beats any "efficient" angel of power 'p'
+  rcases h with ⟨D, N, Dprop⟩
+  -- Contruct a devil, D', that responds in the same way
+  -- to the full journey that D would to the reduced journey
+  let D' : Devil := fun Ap ↦ response D (reduced Ap.A)
+  have D'prop : ∀ p (A : Journey p), response D' A = response D (reduced A) := fun p A ↦ rfl
+  -- Switch to the alternate definition of devil victory and set the
+  -- 'escape square' to be large enough that we get the necessary lower
+  -- bound on the length of the reduced journey.
+  rw [devil_wins_equiv]
+  use D', p * N
+  unfold allowed at Dprop
+  push_neg at *
+  intro A distlb
+  have steps_lb := journey_lb (reduced A) N ((reduced_last A) ▸ distlb)
+  -- Since devil D should catch the angel "reduced A", suppose it happens
+  -- at the 'j₀'th step of the journey, on a cell previously eaten on step 'i₀'
+  rcases Dprop (reduced A) steps_lb (reduced_efficient A) with ⟨i₀, j₀, i₀lt, j₀lt, hcaught⟩
+  -- Map i₀ and j₀ to the original journey (as i₁ and j₁ respectively)
+  let i₁ := reduced_map A i₀ (lt_trans i₀lt j₀lt)
+  let j₁ := reduced_map A j₀ j₀lt
+  unfold allowed; push_neg
+  use i₁, j₁, redmap_mono A i₀lt j₀lt, redmap_lt A j₀ j₀lt
+  -- Conclude that devil D' would catch angel A on cell j₁
+  -- which has previously been eaten on step i₁
+  rw [D'prop, ← redmap_redsub_comm A i₀, hcaught]
+  exact (redmap_cell A j₀ j₀lt).symm
+
+-- TODO: Consider moving the Nice devil proofs into its own file (e.g., Nice.lean)
+/- Máthé defines a "nice" devil as one who "never eats a square on which the Angel has
+   previously stayed nor a square on which the Angel could have jumped at a previous stage but
+   did not."
+
+  We will define such a cell as a "mean" cell and a Nice Devil as one that never eats a mean cell.
+  Note that the Nice Devil is *not* prohibited from eating cells close to the Angel, only those
+  close to one of the Angel's prior locations.
+
+  Note that the first condition - that a nice devil never eats a cell on which an angel has
+  previously stayed - is only included to prevent the nice devil from ever eating (0, 0).
+  That is, every other location on which an angel has stayed is also a cell the angel could have
+  jumped to on a previous step.
+-/
+
+-- True if the ith cell in a Journey proves 'u' is "mean"
+-- Used in various definitions and proofs below
+abbrev mean_fun {p : Nat} (A : Journey p) (u : Int × Int) :=
+  fun (i : Fin (steps A + 1)) ↦ i.val ≠ steps A ∧ close p u (cell A i.1 i.2)
+
+def mean_cell {p : Nat} (A : Journey p) (u : Int × Int) : Prop :=
+  u = (0, 0) ∨ ∃ i, mean_fun A u i
+
+-- A "nice" devil never eats a "mean" cell. Note that referring to such cells as "mean" was not
+-- in the original paper, but is useful for our purposes.
+def nice (D : Devil) (p : Nat) : Prop :=
+  ∀ (A : Journey p), ¬mean_cell A (response D A)
+
+-- Determine whether a cell is nice
+-- Note that this should be decidable, so we can use it in if statements
+def is_nice_cell {p : Nat} (A : Journey p) (u : Int × Int) : Prop :=
+  u ≠ (0, 0) ∧ ¬_can_sat (mean_fun A u)
+
+instance {p : Nat} (A : Journey p) (u : Int × Int) : Decidable (is_nice_cell A u) :=
+  if horigin : u = (0, 0) then by
+    unfold is_nice_cell
+    apply isFalse
+    push_neg; intro _
+    contradiction
+  else
+    if hsat : _can_sat (mean_fun A u) then by
+      unfold is_nice_cell
+      apply isFalse
+      push_neg
+      intro _; assumption
+    else by
+      unfold is_nice_cell
+      apply isTrue
+      constructor <;> assumption
+
+-- Prove that the function which checks whether a cell is nice is equivalent
+-- to the definition (or rather, the negation of the definition of a mean cell).
+lemma is_nice_cell_iff {p : Nat} (A : Journey p) (u : Int × Int) :
+  is_nice_cell A u ↔ ¬mean_cell A u := by
+  unfold is_nice_cell mean_cell
+  constructor
+  · intro ⟨horigin, hclose⟩
+    push_neg
+    use horigin
+    rw [_can_sat_iff] at hclose
+    push_neg at hclose
+    assumption
+  · intro h
+    push_neg at h
+    constructor
+    · exact h.left
+    rw [_can_sat_iff]
+    push_neg
+    exact h.right
+
+-- In the original paper, the Devil may choose to do "nothing".
+-- To keep our formalization simple, we just have the devil pick a
+-- provably "nice" cell when it would normally do nothing.
+def nothing {p : Nat} (A : Journey p) : Int × Int := ((((steps A + 1) * p + 1) : Nat), 0)
+
+lemma nothing_is_nice {p : Nat} (A : Journey p) : is_nice_cell A (nothing A) := by
+  unfold is_nice_cell
+  constructor
+  · unfold nothing
+    have := Int.mul_nonneg (Int.natCast_nonneg (steps A)) (Int.natCast_nonneg p)
+    simp; linarith -- This works with the wrong ineqality but fails with the right one ???
+  intro h
+  rw [_can_sat_iff] at h
+  rcases h with ⟨i, iprop⟩
+  unfold mean_fun at iprop
+  have : dist (0, 0) (nothing A) ≤ dist (0, 0) (cell A i.1 i.2) + p :=
+    le_trans (dist_tri _ _ _) (Nat.add_le_add_left (le_of_eq_of_le (dist_comm _ _) iprop.2) _)
+  apply not_lt_of_ge this; clear this
+  have : dist (0, 0) (nothing A) = (steps A) * p + 1 + p := by
+    rw [dist_comm]
+    unfold nothing dist
+    rw [Int.sub_zero, Int.sub_zero, Int.natAbs_cast, Int.natAbs_zero]
+    simp; ring
+  rw [this]; clear this
+  apply add_lt_add_right
+  apply Nat.lt_succ_iff.mpr
+  apply le_of_not_gt
+  intro h
+  have := journey_lb (subjourney A i.1 i.2) (steps A)
+  rw [subjourney_last_cell, subjourney_steps, mul_comm] at this
+  apply this at h; clear this
+  linarith [i.2]
+
+-- Make a "nice" devil by doing "nothing" for all non-nice responses
+def make_nice (D : Devil) : Devil :=
+  fun Ap ↦ if is_nice_cell Ap.A (response D Ap.A) then (response D Ap.A) else (nothing Ap.A)
+
+-- Prove that a devil created with 'make_nice' is indeed nice.
+lemma make_nice_is_nice (D : Devil) (p : Nat) : nice (make_nice D) p := by
+  unfold nice make_nice response
+  intro A; dsimp
+  rw [← is_nice_cell_iff]
+  split_ifs with hnc
+  · exact hnc
+  · exact nothing_is_nice A
+
+/-
+  Proof notes:
+  ψ - Nice Devil
+  φ - Devil
+
+  (v[0], ..., v[n]) - journey played against ψ (Nice Devil)
+  (u[0], ..., u[k]) - reduced journey, played against φ (Devil)
+  The devil catches the angel: φ (u[0], ..., u[s]) = u[t], where 0 ≤ s < t ≤ k
+  s' - smallest index such that v[s'] = u[s]
+  t' - smallest index such that v[t'] = u[t]
+       Note that in both cases this corresponds to the inverse of the "natural"
+       mapping from the reduced journey to the original journey. That is
+       (u[0], ..., u[s]) is the reduced journey of (v[0], ..., v[s'])
+
+  If after step s' the Nice Devil follows the recommendation of the Devil,
+  then on step t' the angel will step on a previously eaten cell. So assume
+  the Nice Devil did nothing on step s' because eating v[t'] would not have
+  been nice.
+
+  l - step of the nice devil's journey which makes v[t'] not nice
+      That is, 0 ≤ l < s' such that d(v[t'], v[l]) ≤ p
+
+  Becuase v[l] is close to v[t'] and l < s', in constructing the reduced journey
+  some cell with index less than s' should have been chosen.
+
+  This is a contradiction, so the Nice Devil catches the Angel on the same
+  cell as the standard Devil
+-/
+
+/- Theorem 2.7 (Máthé)
+  "If the Devil can catch the Angel of power p, then there is an N such that the
+   Nice Devil can entrap the Angel of power p in the domain B(N)."
+
+   Note that B(N) refers to the "escape square" of size 2N+1 in our formalization.
+-/
+theorem AM2_7 (p : Nat) : (∃ D : Devil, devil_wins D p) →
+  (∃ (D : Devil), nice D p ∧ devil_wins' D p) := by
+  rw [devil_wins_equiv]
+  rintro ⟨d₀, N, h⟩
+  -- Construct a devil, d₁, which responds in the same was as d₀ would to
+  -- the "reduced" journey, but nice.
+  let d₁ : Devil := make_nice (fun Ap ↦ response d₀ (reduced Ap.A))
+  -- The claim is that the Nice Devil d₁ will trap the angel
+  -- We select the box size to force 2 < steps (reduced A)
+  use d₁, make_nice_is_nice _ p, (p + 1) + N
+  intro A houtside
+  rw [← reduced_last] at houtside
+  replace h := h (reduced A) (lt_trans (Nat.lt_add_of_pos_left (Nat.add_one_pos _)) houtside)
+  unfold allowed at *
+  push_neg at *
+  rcases h with ⟨i₀, j₀, i₀ltj₀, j₀lt, hcaught⟩
+  have i₀lt := lt_trans i₀ltj₀ j₀lt
+  let i₁ := reduced_map A i₀ i₀lt
+  let j₁ := reduced_map A j₀ j₀lt
+  have i₁lt := redmap_lt A i₀ i₀lt
+  have j₁lt := redmap_lt A j₀ j₀lt
+  use i₁, j₁, redmap_mono A i₀ltj₀ j₀lt, j₁lt
+  let sjAi₁ := subjourney A i₁ i₁lt
+  by_cases hnc : is_nice_cell sjAi₁ (response d₀ (reduced sjAi₁))
+  · -- If the cell eaten by d₀ is "nice", d₁ will copy it and
+    -- catch the angel in the same place
+    unfold d₁ make_nice response; dsimp
+    unfold sjAi₁ response at *
+    rw [if_pos hnc, ← redmap_redsub_comm A i₀, hcaught]
+    exact (redmap_cell A j₀ j₀lt).symm
+  · -- Otherwise we will show one of two contradictions depending the reason
+    -- why the chosen cell was not "nice".
+    absurd hnc; clear hnc
+    rw [is_nice_cell_iff]
+    unfold mean_cell mean_fun
+    push_neg
+    rw [← redmap_redsub_comm A i₀, hcaught]
+    constructor
+    · -- We show that the angel could not have been caught on the origin.
+      -- Use the size of the escape square (given by 'houtside') to prove
+      -- 1 < steps (reduced A). Then conclude that 'reduced A' has no duplicate
+      -- cells. In particular (0, 0) cannot repeat.
+      apply reduced_start_no_repeat A _ j₀ j₀lt (Nat.ne_zero_of_lt i₀ltj₀)
+      apply journey_lb (reduced A) 1
+      apply lt_trans _ houtside
+      rw [mul_one]
+      exact lt_of_lt_of_le (Nat.lt_add_one _) (Nat.le_add_right _ _)
+    · -- Finally, we show that if the cell chosen by d₀ was not "nice" there must be
+      -- some close cell at index 'l' which would have been chosen for the reduced
+      -- journey rather instead of A[i₁]. This is a contradiction.
+      --
+      -- Note that this portion of the proof is written in a somewhat unusal style.
+      -- I was having trouble with strange errors with unhelpful descriptions and
+      -- I thought it might be related to my "deferred bounds check" approach.
+      -- To avoid this, I rewrote everything to prove the bounds checks in advance.
+      intro l hlnl
+      -- Much of the rest of the proof is just proving various inequalities
+      have llei₁ : l.val ≤ i₁ := by
+        apply Nat.le_of_lt_add_one
+        apply lt_of_lt_of_eq l.2
+        rw [subjourney_steps]
+      rw [subjourney_cell A i₁ l.val i₁lt llei₁, ← redmap_cell A j₀ j₀lt]
+      rcases Nat.exists_eq_add_one_of_ne_zero (Nat.ne_zero_of_lt i₀ltj₀) with ⟨j₀pred, j₀prop⟩
+      have j₀plt : j₀pred < steps (reduced A) + 1 :=
+        lt_trans (lt_of_lt_of_eq (Nat.lt_add_one _) j₀prop.symm) j₀lt
+      have i₁le : i₁ ≤ reduced_map A j₀pred j₀plt := by
+        rcases Nat.lt_or_eq_of_le (Nat.le_of_lt_add_one (lt_of_lt_of_eq i₀ltj₀ j₀prop)) with lhs | rhs
+        · exact Nat.le_of_lt (redmap_mono A lhs j₀plt)
+        · apply Nat.le_of_eq
+          unfold i₁; subst rhs; rfl
+      subst j₀prop
+      by_contra hclose
+      have hlle : l.val ≤ reduced_map A (j₀pred + 1) j₀lt :=
+        le_trans (le_of_le_of_eq (Nat.le_of_lt_add_one l.2) (subjourney_steps A i₁ i₁lt))
+          (le_trans i₁le (le_of_lt (redmap_mono A (Nat.lt_add_one j₀pred) j₀lt)))
+      -- Build the contradiction we will eventually show
+      have hcontra : ¬reduced_map A j₀pred (lt_trans (Nat.lt_add_one _) j₀lt) ≤ l.val :=
+        Nat.not_le.mpr (lt_of_lt_of_le (lt_of_le_of_ne (Nat.le_of_lt_add_one l.2) hlnl) i₁le)
+      let sjAj₁ := subjourney A (reduced_map A (j₀pred + 1) j₀lt) j₁lt
+      have hllt : ↑l < steps sjAj₁ + 1 := by
+        nth_rw 2 [subjourney_steps]
+        exact Nat.lt_add_one_of_le hlle
+      -- Here's where the actually logic happens!
+      have : close p (cell sjAj₁ (↑l) hllt) (last sjAj₁) := by
+        rw [subjourney_last_cell A j₁ j₁lt]
+        rw [subjourney_cell A j₁ l.val j₁lt hlle]
+        exact (close_comm p _ _).mp hclose
+      rw [← redmap_consecutive A j₀pred j₀lt] at hcontra
+      exact hcontra (first_close_to_last_is_first sjAj₁ l.val hllt this)
