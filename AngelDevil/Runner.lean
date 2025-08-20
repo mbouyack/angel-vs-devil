@@ -194,3 +194,16 @@ lemma sprint_close_first_last (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten
   rw [List.head_eq_getElem_zero hnnil, sprint_partial_getElem_zero_of_nonnil]
   · exact sprint_partial_mem_close p 1 (loc rs₀) eaten _ _ (List.getLast_mem hnnil)
   · assumption
+
+-- TODO: This might be useful more generally
+-- Maybe put this in 'Basic'?
+/- A journey of zero steps.
+   This will be used as the base case for constructing the Runner.
+-/
+def NoSteps (p : Nat) : Journey p where
+  n := 0
+  seq := fun _ ↦ (0, 0)
+  start := rfl
+  plimit := fun i ilt ↦ False.elim (Nat.not_lt_zero i ilt)
+
+lemma nosteps_steps (p : Nat) : steps (NoSteps p) = 0 := rfl
