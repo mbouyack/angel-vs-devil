@@ -93,6 +93,11 @@ def last {p : Nat} (A : Journey p) : Int × Int := cell A (steps A) (Nat.lt_add_
 -- Every journey starts at the origin
 lemma journey_start {p : Nat} (A : Journey p) : cell A 0 (Nat.add_one_pos _) = (0, 0) := A.start
 
+-- A journey of no steps ends at the origin
+lemma journey_last_of_steps_zero {p : Nat} (A : Journey p) (sz : steps A = 0) :
+  last A = (0, 0) := by
+  rw [last, cell_congr_idx A sz (Nat.lt_add_one _), journey_start]
+
 -- Consecutive cells along the journey are "close"
 lemma journey_steps_close {p : Nat} (A : Journey p) :
   ∀ i, (ilt : i < steps A) → close p (cell A i (by linarith)) (cell A (i+1) (by linarith)) := A.plimit

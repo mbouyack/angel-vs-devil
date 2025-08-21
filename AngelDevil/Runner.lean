@@ -88,7 +88,8 @@ decreasing_by
 
 -- If the list constructed by 'sprint_partial' is not empty, the first element of the list will be 'rs'
 lemma sprint_partial_getElem_zero_of_nonnil (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
-  (hnnil : sprint_partial p ns start eaten rs ≠ []) → (sprint_partial p ns start eaten rs)[0]'(List.length_pos_iff.mpr hnnil) = rs := by
+  (hnnil : sprint_partial p ns start eaten rs ≠ []) →
+  (sprint_partial p ns start eaten rs)[0]'(List.length_pos_iff.mpr hnnil) = rs := by
   intro hnnil
   -- Use the trick of starting with 'sprint_partial = sprint_partial' followed by 'nth_rw'
   -- to expand only the right-hand side. This allows us to easily do
@@ -136,6 +137,7 @@ lemma sprint_partial_cons_of_nonnil (p ns : Nat) (start : Int × Int) (eaten : L
     rw [dif_pos hterm]
   · rfl
 
+-- Any element of a partial sprint is close to the start of the sprint
 lemma sprint_partial_mem_close (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
   ∀ x ∈ sprint_partial p ns start eaten rs, close p start (loc x) := by
   intro x hxmem
@@ -166,7 +168,7 @@ decreasing_by
 -- Later we will show that the cells corresponding to the beginning and end of
 -- the sprints can be used to construct an angel which escapes the Nice Devil.
 def sprint (p : Nat) (rs₀ : RunState) (eaten : List (Int × Int)) : List RunState :=
-  sprint_partial p 1 (loc rs₀) eaten rs₀
+  sprint_partial p 0 (loc rs₀) eaten rs₀
 
 -- If 'p' is positive, the sprint will not be empty
 -- Up to this point we have not needed this assumption, but it appears
@@ -178,11 +180,17 @@ lemma sprint_nonnil_of_ppos (p : Nat) (rs₀ : RunState) (eaten : List (Int × I
   split_ifs with hterm
   · contrapose! hterm
     constructor
-    · apply Nat.le_of_lt_add_one
-      apply Nat.add_one_lt_add_one_iff.mpr
-      linarith
+    · linarith
     · exact close_self p (loc rs₀)
   exact List.cons_ne_nil _ _
+
+lemma sprint_getElem_zero_of_ppos (p : Nat) (rs₀ : RunState) (eaten : List (Int × Int)) :
+  (ppos : 0 < p) → (sprint p rs₀ eaten)[0]'(by
+    apply List.length_pos_of_ne_nil
+    exact sprint_nonnil_of_ppos p rs₀ eaten ppos
+  ) = rs₀ :=
+  fun ppos ↦ sprint_partial_getElem_zero_of_nonnil p 0 (loc rs₀) eaten rs₀
+    (sprint_nonnil_of_ppos p rs₀ eaten ppos)
 
 -- Prove that the first and last cells in a sprint are "close"
 lemma sprint_close_first_last (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten : List (Int × Int)) :
@@ -192,7 +200,7 @@ lemma sprint_close_first_last (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten
   have hnnil := sprint_nonnil_of_ppos p rs₀ eaten hpos
   unfold sprint at *
   rw [List.head_eq_getElem_zero hnnil, sprint_partial_getElem_zero_of_nonnil]
-  · exact sprint_partial_mem_close p 1 (loc rs₀) eaten _ _ (List.getLast_mem hnnil)
+  · exact sprint_partial_mem_close p 0 (loc rs₀) eaten _ _ (List.getLast_mem hnnil)
   · assumption
 
 -- TODO: This might be useful more generally
@@ -207,3 +215,149 @@ def NoSteps (p : Nat) : Journey p where
   plimit := fun i ilt ↦ False.elim (Nat.not_lt_zero i ilt)
 
 lemma nosteps_steps (p : Nat) : steps (NoSteps p) = 0 := rfl
+
+/- The three different structures needed to define the runner's journey
+   have interdependencies that make them difficult to construct separately.
+   This structure will allow us to build all three together. -/
+structure RunBuilder (p : Nat) where
+  D : Devil
+  A : Journey p
+  eaten : List (Int × Int)
+  sprints : List (List RunState)
+  -- These bundled properties are somewhat eclectic
+  -- They are only included to facilitate the definition of 'build run' (below)
+  ppos : 0 < p
+  nonnil : ∀ s ∈ sprints, s ≠ []
+  samelen : steps A = sprints.length
+  origin : (snn : sprints ≠ []) →
+    (sprints[0]'(List.length_pos_of_ne_nil snn))[0]'(
+      List.length_pos_of_ne_nil (nonnil _ (List.getElem_mem (List.length_pos_of_ne_nil snn)))
+    ) = run_start
+  dest : (snn : sprints ≠ []) →
+    loc ((sprints.getLast snn).getLast (nonnil _ (List.getLast_mem snn))) = last A
+
+-- Get the final runner state from a run builder
+-- If we haven't had any sprints yet, use the default location and direction
+def final_state {p : Nat} (S : RunBuilder p) : RunState :=
+  if hlz : S.sprints.length = 0 then run_start else
+    (S.sprints.getLast (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))).getLast
+    (S.nonnil _ (List.getLast_mem (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))))
+
+-- If the list of sprints is empty, the final state of the run is the 'run_start'
+lemma final_state_of_sprints_nil {p : Nat} (S : RunBuilder p) (hnil : S.sprints = []) :
+  final_state S = run_start := by
+  unfold final_state
+  rw [dif_pos (List.length_eq_zero_iff.mpr hnil)]
+
+-- The location given by 'final_state' matches the last cell in the builder journey
+lemma final_state_loc_eq_journey_last {p : Nat} (S : RunBuilder p) :
+  loc (final_state S) = last S.A := by
+  unfold final_state
+  split_ifs with hlz
+  · exact (journey_last_of_steps_zero S.A (Eq.trans S.samelen hlz)).symm
+  · push_neg at hlz
+    exact S.dest (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))
+
+-- Get the next sprint to be added to the builder
+def next_sprint {p : Nat} (S : RunBuilder p) : List RunState :=
+  sprint p (final_state S) S.eaten
+
+-- The initial state of the next sprint is the
+-- same as the final state of the builder
+lemma next_sprint_first_eq_builder_last {p : Nat} (S : RunBuilder p) :
+  final_state S = (next_sprint S)[0]'(by
+    apply List.length_pos_of_ne_nil
+    exact sprint_nonnil_of_ppos p (final_state S) S.eaten S.ppos
+  ) := by
+  unfold next_sprint
+  rw [sprint_getElem_zero_of_ppos]
+  exact S.ppos
+
+-- The last cell of the next sprint is "close" to the
+-- last cell of the builder journey.
+lemma next_sprint_last_close_builder_last {p : Nat} (S : RunBuilder p) :
+  close p (loc ((next_sprint S).getLast (sprint_nonnil_of_ppos p (final_state S) S.eaten S.ppos))) (last S.A) := by
+  rw [← final_state_loc_eq_journey_last]
+  nth_rw 2 [next_sprint_first_eq_builder_last S]
+  rw [close_comm, List.getElem_zero]
+  exact sprint_close_first_last _ S.ppos _ _
+
+-- Define the base case for our builder construction:
+-- The journey has no steps, there are no sprints, and the
+-- Devil has only eaten one cell
+def empty_builder (D : Devil) (p : Nat) (ppos : 0 < p) : RunBuilder p where
+  D := D
+  A := NoSteps p
+  eaten := [response D (NoSteps p)]
+  sprints := []
+  nonnil := fun _ hs ↦ False.elim (List.not_mem_nil hs)
+  ppos := ppos
+  samelen := by rw [nosteps_steps, List.length_nil]
+  origin := fun snn ↦ False.elim (snn rfl)
+  dest := fun snn ↦ False.elim (snn rfl)
+
+-- Construct the journey that corresponds to appending the
+-- last location of the next sprint
+def builder_journey_extend {p : Nat} (S : RunBuilder p) : Journey p :=
+  AppendJourney S.A (loc ((next_sprint S).getLast (sprint_nonnil_of_ppos p _ _ S.ppos)))
+  ((close_comm p _ _).mp (next_sprint_last_close_builder_last S))
+
+-- Why doesn't this theorem aleady exist?
+-- TODO: If this is needed elsewhere, move it into 'Basic.lean' or 'Util.lean'
+lemma list_singleton_ne_nil {α : Type} (x : α) : [x] ≠ [] := by
+  apply List.ne_nil_of_length_pos
+  rw [List.length_singleton]
+  norm_num
+
+/- Add another sprint to a 'RunBuilder'
+   Original this was named 'make_run' and used recursion to
+   directly construct the RunBuilder (rather than taking 'S' as an argument).
+   Unfortunately this caused timeouts, so now 'make_run' handles the recursion
+   separately and wraps 'extend_run' -/
+def extend_run (D : Devil) (p : Nat) (ppos : 0 < p) (S : RunBuilder p) : RunBuilder p:=
+  RunBuilder.mk D
+    (builder_journey_extend S)
+    (S.eaten ++ [response D (builder_journey_extend S)])
+    (S.sprints ++ [next_sprint S])
+    ppos
+    (by
+      intro s smem
+      rcases List.mem_append.mp smem with lhs | rhs
+      · exact RunBuilder.nonnil _ s lhs
+      · exact (List.mem_singleton.mp rhs) ▸ (sprint_nonnil_of_ppos p _ _ ppos)
+    )
+    (by
+      unfold builder_journey_extend
+      rw [append_steps, List.length_append, List.length_singleton]
+      exact Nat.add_one_inj.mpr (RunBuilder.samelen _)
+    )
+    (by
+      intro h
+      let sprints := S.sprints
+      let s := next_sprint S
+      by_cases hsn : sprints = []
+      · have h₀ : 0 < (sprints ++ [s]).length := by
+          rw [List.length_append, List.length_singleton]
+          exact Nat.add_one_pos _
+        have h₁ : sprints ++ [s] = [s] := by
+          rw [hsn, List.nil_append]
+        have h₂ : (sprints ++ [s])[0]'(h₀) = s :=
+          getElem_congr_coll h₁
+        rw [getElem_congr_coll h₂]
+        rw [← next_sprint_first_eq_builder_last _]
+        exact final_state_of_sprints_nil _ hsn
+      · rename' hsn => hsnn; push_neg at hsnn
+        rw [getElem_congr_coll (List.getElem_append_left (List.length_pos_of_ne_nil hsnn))]
+        exact RunBuilder.origin _ hsnn
+    )
+    (by
+      intro h
+      unfold builder_journey_extend
+      rw [append_last]; congr
+      rw [List.getLast_append_right (list_singleton_ne_nil _)]
+      rw [List.getLast_singleton (list_singleton_ne_nil _)]
+    )
+
+def make_run (D : Devil) (p n : Nat) (ppos : 0 < p) : RunBuilder p :=
+  if n = 0 then empty_builder D p ppos else
+  extend_run D p ppos (make_run D p (n - 1) ppos)
