@@ -7,6 +7,9 @@ import AngelDevil.Defs
 import AngelDevil.Basic
 import AngelDevil.Subjourney
 
+set_option linter.style.longLine false
+set_option linter.style.multiGoal false
+
 /- A devil is "focused" of size N if it never eats the same cell twice and
   for the first (2N+1)² responses, only eats cells are no farther than
   distance N from the origin
@@ -48,7 +51,7 @@ def square_iter (N : Nat) : Fin ((2*N + 1) ^ 2) → B N :=
   ⟩
 
 -- Bound useful for proving 'square_iter' is an equivalence
-lemma square_iter_inv_val_nonneg (N : Nat) (u : Int × Int) (hclose : close N (0, 0) u):
+lemma square_iter_inv_val_nonneg (N : Nat) (u : Int × Int) (hclose : close N (0, 0) u) :
   (0 : Int) ≤ (2 * ↑N + 1) * (u.2 + ↑N) + u.1 + ↑N := by
   have negxle := close_origin_negxle N u hclose
   have negyle := close_origin_negyle N u hclose
@@ -212,7 +215,7 @@ lemma find_cell_fin_cast_eq (N : Nat) :
 def find_cell_fin_cast (N : Nat) (i : Fin ((2 * N + 1) * (2 * N) + 2 * N + 1)) : Fin ((2*N + 1)^2) :=
   Fin.cast (find_cell_fin_cast_eq N).symm i
 
-def find_cell_fin_cast' (N : Nat) (i : Fin ((2*N + 1)^2)) : Fin ((2 * N + 1) * (2 * N) + 2 * N + 1) :=
+def find_cell_fin_cast' (N : Nat) (i : Fin ((2 * N + 1) ^ 2)) : Fin ((2 * N + 1) * (2 * N) + 2 * N + 1) :=
   Fin.cast (find_cell_fin_cast_eq N) i
 
 -- Search the escape square for a cell which satisfies 'f'
@@ -389,7 +392,7 @@ lemma focused_cells_getElem_zero_of_normal_journey_of_unfocused_response
 -- but I haven't figure out how that works yet, so we're just
 -- proving it manually.
 lemma focused_cell_exists_helper {n : Nat} (f : Fin (n + 1) → (Int × Int)) (L : List (Int × Int))
-  (hlt : L.length < n+1) (finj : Function.Injective f): ∃ i, f i ∉ L := by
+  (hlt : L.length < n + 1) (finj : Function.Injective f) : ∃ i, f i ∉ L := by
   -- If L.length = 0, nothing is in L, so in particular f i ∉ L
   by_cases hz : L.length = 0
   · rw [List.length_eq_zero_iff] at hz
