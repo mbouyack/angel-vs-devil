@@ -1,5 +1,6 @@
 import Mathlib.Data.Fin.Basic
 import AngelDevil.Basic
+import AngelDevil.Subjourney
 
 set_option linter.style.longLine false
 
@@ -7,7 +8,7 @@ set_option linter.style.longLine false
    This will be used to construct the Runner's journey in Runner.lean.
 -/
 
-def AppendJourney {p : Nat} (A : Journey p) (u : Int × Int) (hclose : close p (last A) u) : Journey p where
+def append_journey {p : Nat} (A : Journey p) (u : Int × Int) (hclose : close p (last A) u) : Journey p where
   n := A.n + 1
   seq := fun i ↦ if h : i = Fin.last (A.n + 1) then u else A.seq (Fin.castPred i h)
   start := A.start
@@ -27,12 +28,40 @@ def AppendJourney {p : Nat} (A : Journey p) (u : Int × Int) (hclose : close p (
 
 -- The number of steps in the append journey is one more than the original
 lemma append_steps {p : Nat} (A : Journey p) (u : Int × Int) (hclose : close p (last A) u) :
-  steps (AppendJourney A u hclose) = steps A + 1 := by
-  unfold AppendJourney steps; dsimp
+  steps (append_journey A u hclose) = steps A + 1 := by
+  unfold append_journey steps; dsimp
 
 -- The last cell in the append journey is 'u'
 lemma append_last {p : Nat} (A : Journey p) (u : Int × Int) (hclose : close p (last A) u) :
-  last (AppendJourney A u hclose) = u := by
-  unfold last cell steps AppendJourney; dsimp
+  last (append_journey A u hclose) = u := by
+  unfold last cell steps append_journey; dsimp
   rw [dif_pos _]
   apply (Fin.val_eq_val _ _).mp; simp
+
+-- Any cell of an append journey other than the last is
+-- the same as the corresponding cell of the original journey
+lemma append_cell_ne_last {p : Nat} (A : Journey p) (u : Int × Int)
+  (hclose : close p (last A) u) (i : Nat) (ilt : i < steps A + 1) :
+  cell (append_journey A u hclose) i (lt_trans ilt (Nat.lt_add_one _)) = cell A i ilt := by
+  unfold append_journey cell; dsimp
+  have ine : @Fin.mk (A.n + 1 + 1) i (lt_trans ilt (Nat.lt_add_one _)) ≠ Fin.last (A.n + 1) := by
+    apply Fin.val_ne_iff.mp; simp; push_neg
+    exact Nat.ne_of_lt ilt
+  rw [dif_neg ine]
+  rfl
+
+-- Any non-full subjourney of an append journey is just
+-- the same subjourney of the original journey
+lemma append_subjourney {p : Nat} (A : Journey p) (u : Int × Int)
+  (hclose : close p (last A) u) (n : Nat) (nlt : n < steps A + 1) :
+  subjourney (append_journey A u hclose) n (by rw [append_steps]; exact lt_trans nlt (Nat.lt_add_one _)) =
+  subjourney A n nlt := by
+  apply (journey_ext_iff _ _).mpr
+  push_neg
+  use (by rw [subjourney_steps, subjourney_steps])
+  intro i ilt
+  have ile : i ≤ n := by
+    rw [subjourney_steps] at ilt
+    exact Nat.le_of_lt_add_one ilt
+  rwa [subjourney_cell, subjourney_cell, append_cell_ne_last]
+  repeat exact ile
