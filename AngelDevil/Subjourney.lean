@@ -48,6 +48,14 @@ lemma subjourney_congr_idx {p : Nat} (A : Journey p) {i j : Nat} (hij : i = j) (
   subst hij
   rfl
 
+lemma subjourney_congr_journey {p : Nat} {A B : Journey p} (hAB : A = B) (i : Nat) (ilt : i < steps A + 1) :
+  subjourney A i ilt = subjourney B i (by rwa [← hAB]) := by
+  apply (journey_ext_iff _ _).mpr
+  push_neg
+  use (by rw [subjourney_steps, subjourney_steps])
+  intro j jlt
+  subst hAB; rfl
+
 -- The subjourney which includes all but the last step is often useful in
 -- recursive definitions and proofs by induction
 def subjourney_drop_last {p : Nat} (A : Journey p) (snz : steps A ≠ 0) : Journey p :=
