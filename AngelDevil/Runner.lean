@@ -3,7 +3,7 @@ import Mathlib.Data.List.Basic
 import AngelDevil.Defs
 import AngelDevil.Basic
 import AngelDevil.Append
-import AngelDevil.Subjourney
+import AngelDevil.Nice
 
 set_option linter.style.longLine false
 
@@ -225,7 +225,7 @@ structure RunBuilder (p : Nat) where
   eaten : List (Int × Int)
   sprints : List (List RunState)
   -- These bundled properties are somewhat eclectic
-  -- They are only included to facilitate the definition of 'build run' (below)
+  -- They are only included to facilitate the definition of 'extend_run' (below)
   ppos : 0 < p
   nonnil : ∀ s ∈ sprints, s ≠ []
   samelen : steps A = sprints.length
@@ -296,10 +296,22 @@ def empty_builder (D : Devil) (p : Nat) (ppos : 0 < p) : RunBuilder p where
   origin := fun snn ↦ False.elim (snn rfl)
   dest := fun snn ↦ False.elim (snn rfl)
 
+lemma empty_builder_sprints (D : Devil) (p : Nat) (ppos : 0 < p) :
+  (empty_builder D p ppos).sprints = [] := by
+  unfold empty_builder; dsimp
+
+lemma empty_builder_journey (D : Devil) (p : Nat) (ppos : 0 < p) :
+  (empty_builder D p ppos).A = NoSteps p := by
+  unfold empty_builder; dsimp
+
+lemma empty_builder_eaten (D : Devil) (p : Nat) (ppos : 0 < p) :
+  (empty_builder D p ppos).eaten = [response D (NoSteps p)] := by
+  unfold empty_builder; dsimp
+
 -- Construct the journey that corresponds to appending the
 -- last location of the next sprint
 def builder_journey_extend {p : Nat} (S : RunBuilder p) : Journey p :=
-  AppendJourney S.A (loc ((next_sprint S).getLast (sprint_nonnil_of_ppos p _ _ S.ppos)))
+  append_journey S.A (loc ((next_sprint S).getLast (sprint_nonnil_of_ppos p _ _ S.ppos)))
   ((close_comm p _ _).mp (next_sprint_last_close_builder_last S))
 
 -- Why doesn't this theorem aleady exist?
@@ -358,6 +370,236 @@ def extend_run (D : Devil) (p : Nat) (ppos : 0 < p) (S : RunBuilder p) : RunBuil
       rw [List.getLast_singleton (list_singleton_ne_nil _)]
     )
 
+-- Recursively construct the RunBuilder
 def make_run (D : Devil) (p n : Nat) (ppos : 0 < p) : RunBuilder p :=
   if n = 0 then empty_builder D p ppos else
   extend_run D p ppos (make_run D p (n - 1) ppos)
+
+-- A run of length zero is represented by the 'empty_builder'
+lemma make_run_eq_empty_of_length_zero (D : Devil) (p : Nat) (ppos : 0 < p) :
+  make_run D p 0 ppos = empty_builder D p ppos := by
+  unfold make_run
+  rw [if_pos rfl]
+
+-- The recursive definition of the runner's journey:
+-- Append the last cell of the 'next_sprint' to the journey to extend it.
+lemma make_run_journey_recurrence (D : Devil) (p n : Nat) (ppos : 0 < p) (npos : 0 < n) :
+  (make_run D p n ppos).A =
+  append_journey
+    (make_run D p (n - 1) ppos).A
+    (loc ((next_sprint (make_run D p (n - 1) ppos)).getLast (sprint_nonnil_of_ppos p _ _ ppos)))
+    ((close_comm p _ _).mp (next_sprint_last_close_builder_last (make_run D p (n - 1) ppos))) := by
+  nth_rw 1 [make_run]
+  rw [if_neg (Nat.ne_zero_iff_zero_lt.mpr npos)]
+  rfl
+
+-- The recursive definition of the runner's sprints
+-- Just append the 'next_sprint' to the existing list of sprints.
+lemma make_run_sprints_recurrence (D : Devil) (p n : Nat) (ppos : 0 < p) (npos : 0 < n) :
+  (make_run D p n ppos).sprints =
+  (make_run D p (n - 1) ppos).sprints ++ [(next_sprint (make_run D p (n - 1) ppos))] := by
+  nth_rw 1 [make_run]
+  rw [if_neg (Nat.ne_zero_iff_zero_lt.mpr npos)]
+  rfl
+
+-- The recursive definition of the cells eaten in response to the runner
+-- This is just the devil's response to the new journey append to the old list
+lemma make_run_eaten_recurrence (D : Devil) (p n : Nat) (ppos : 0 < p) (npos : 0 < n) :
+  (make_run D p n ppos).eaten =
+  (make_run D p (n - 1) ppos).eaten ++ [response D (make_run D p n ppos).A] := by
+  nth_rw 1 [make_run]
+  rw [if_neg (Nat.ne_zero_iff_zero_lt.mpr npos)]
+  rw [make_run_journey_recurrence D p n ppos npos];
+  rfl
+
+-- The number of steps in the journey is just 'n'
+lemma make_run_journey_steps (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  steps (make_run D p n ppos).A = n := by
+  by_cases hnz : n = 0
+  · subst hnz
+    rw [make_run_eq_empty_of_length_zero, empty_builder_journey, nosteps_steps]
+  rename' hnz => hnnz; push_neg at hnnz
+  have hpos : 0 < n := Nat.zero_lt_of_ne_zero hnnz
+  rwa [make_run_journey_recurrence, append_steps, make_run_journey_steps, Nat.sub_one_add_one hnnz]
+
+-- The number of eaten cells is just n+1
+lemma make_run_eaten_length (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  (make_run D p n ppos).eaten.length = n + 1 := by
+  by_cases hnz : n = 0
+  · subst hnz
+    rw [make_run_eq_empty_of_length_zero, empty_builder_eaten, List.length_singleton]
+  rename' hnz => hnnz; push_neg at hnnz
+  have npos : 0 < n := Nat.ne_zero_iff_zero_lt.mp hnnz
+  rw [make_run_eaten_recurrence D p n ppos npos, List.length_append]
+  rw [List.length_singleton]
+  apply Nat.add_one_inj.mpr
+  nth_rw 2 [← Nat.sub_one_add_one hnnz]
+  exact make_run_eaten_length D p (n - 1) ppos
+
+-- The number of sprints in the RunBuilder is 'n'
+lemma make_run_sprints_length (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  (make_run D p n ppos).sprints.length = n := by
+  rw [← (make_run D p n ppos).samelen]
+  exact make_run_journey_steps _ _ _ _
+
+-- The subjourney of a 'make_run' journey is just the
+-- 'make_run' journey of that length
+lemma make_run_subjourney (D : Devil) (p m n : Nat) (ppos : 0 < p) (mlt : m < n + 1) :
+  subjourney (make_run D p n ppos).A m (by rwa [make_run_journey_steps]) =
+  (make_run D p m ppos).A := by
+  -- First handle the case where m = n
+  by_cases hmn : m = n
+  · subst hmn
+    convert subjourney_full _
+    rw [make_run_journey_steps]
+  push_neg at hmn
+  -- If m ≠ n, n ≠ 0
+  have nnz : n ≠ 0 :=
+    fun nz ↦ False.elim (Nat.not_lt_zero _ (nz ▸ (lt_of_le_of_ne (Nat.le_of_lt_add_one mlt) hmn)))
+  -- Prove a tighter bound on m
+  have mlt' : m < n :=
+    lt_of_le_of_ne (Nat.le_of_lt_add_one mlt) hmn
+  have hrecurse := make_run_journey_recurrence D p n ppos (Nat.pos_of_ne_zero nnz)
+  rw [subjourney_congr_journey hrecurse, append_subjourney]
+  · -- Do the recursion
+    exact make_run_subjourney D p m (n - 1) ppos (by rwa [Nat.sub_one_add_one nnz])
+
+-- The first 'm+1' cells eaten in response to the runner moving 'n' steps
+-- will correspond to all the cells eaten in response to the runner moving
+-- 'm' steps.
+lemma make_run_eaten_take (D : Devil) (p m n : Nat) (ppos : 0 < p) (mlt : m < n + 1) :
+  (make_run D p n ppos).eaten.take (m+1) = (make_run D p m ppos).eaten := by
+  -- First handle the case where m = n
+  by_cases hmn : m = n
+  · subst hmn
+    convert List.take_length
+    exact (make_run_eaten_length D p m ppos).symm
+  push_neg at hmn
+  -- If m ≠ n, n ≠ 0
+  have nnz : n ≠ 0 :=
+    fun nz ↦ False.elim (Nat.not_lt_zero _ (nz ▸ (lt_of_le_of_ne (Nat.le_of_lt_add_one mlt) hmn)))
+  -- Prove a tighter bound on m
+  have mlt' : m < n :=
+    lt_of_le_of_ne (Nat.le_of_lt_add_one mlt) hmn
+  have hrecurse := make_run_eaten_recurrence D p n ppos (Nat.pos_of_ne_zero nnz)
+  rw [hrecurse, List.take_append_of_le_length]
+  · -- Do the recursion
+    exact make_run_eaten_take D p m (n - 1) ppos (by rwa [Nat.sub_one_add_one nnz])
+  -- Prove the remaining bounds check
+  rw [make_run_eaten_length, Nat.sub_one_add_one nnz]
+  exact Nat.add_one_le_of_lt mlt'
+
+-- The first 'm' sprints of a run of 'n' sprints are the same as
+-- the full list of sprints in a run of 'm' sprints
+lemma make_run_sprints_take (D : Devil) (p m n : Nat) (ppos : 0 < p) (mlt : m < n + 1) :
+  (make_run D p n ppos).sprints.take m = (make_run D p m ppos).sprints := by
+  -- First handle the case where m = n
+  by_cases hmn : m = n
+  · subst hmn
+    convert List.take_length
+    exact (make_run_sprints_length D p m ppos).symm
+  push_neg at hmn
+  -- If m ≠ n, n ≠ 0
+  have nnz : n ≠ 0 :=
+    fun nz ↦ False.elim (Nat.not_lt_zero _ (nz ▸ (lt_of_le_of_ne (Nat.le_of_lt_add_one mlt) hmn)))
+  -- Prove a tighter bound on m
+  have mlt' : m < n :=
+    lt_of_le_of_ne (Nat.le_of_lt_add_one mlt) hmn
+  have hrecurse := make_run_sprints_recurrence D p n ppos (Nat.pos_of_ne_zero nnz)
+  rw [hrecurse, List.take_append_of_le_length]
+  · -- Do the recursion
+    exact make_run_sprints_take D p m (n - 1) ppos (by rwa [Nat.sub_one_add_one nnz])
+  -- Prove the remaining bounds check
+  rw [make_run_sprints_length]
+  apply Nat.le_of_lt_add_one
+  rwa [Nat.sub_one_add_one nnz]
+
+-- Extract the runner's journey from the RunBuilder
+-- TODO: Is there any reason for this actually?
+def Runner (D : Devil) (p n : Nat) (ppos : 0 < p) : Journey p :=
+  (make_run D p n ppos).A
+
+-- Each cell in the runner's journey (other than the first)
+-- corresponds to the final location of the previous sprint.
+lemma make_run_journey_cell (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  ∀ (i : Fin n),
+  cell (make_run D p n ppos).A i.succ
+    (by rw [make_run_journey_steps]; exact Nat.add_one_lt_add_one_iff.mpr i.2) =
+  (loc (((make_run D p n ppos).sprints[i]'
+    (by rw [make_run_sprints_length]; exact i.2)).getLast
+      (by
+        apply (make_run D p n ppos).nonnil
+        apply List.getElem_mem
+      ))) := by
+  intro i
+  rw [cell_congr_idx (make_run D p n ppos).A (Fin.val_succ i)]
+  -- Prove sprints is nonnil so we can use RunBuilder.dest below
+  have hsnn : (make_run D p (i.val + 1) ppos).sprints ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [make_run_sprints_length]
+    exact Nat.add_one_pos _
+  have islt : i.val + 1 < n + 1 :=
+    Nat.add_one_lt_add_one_iff.mpr i.2
+  rw [← subjourney_last_cell, make_run_subjourney]; swap
+  · assumption -- bounds check
+  rw [((make_run D p (i.val + 1) ppos).dest hsnn).symm]
+  congr
+  -- Rewrite the sprints of the sub-run as 'take' of the sprints of the full run.
+  rw [List.getLast_congr _ _ (make_run_sprints_take D p (i.val + 1) n ppos islt).symm]; swap
+  · -- Resolve pending bounds check
+    apply List.ne_nil_of_length_pos
+    have ispos : 0 < i.val + 1 := Nat.add_one_pos _
+    rwa [List.length_take_of_le]
+    rw [make_run_sprints_length]
+    exact Nat.add_one_le_of_lt i.2
+  -- Apply list identities to resolve goal
+  rw [List.getLast_eq_getElem, List.getElem_take]; congr
+  rw [List.length_take_of_le]
+  · exact Nat.add_one_sub_one _
+  · rw [make_run_sprints_length]
+    exact Nat.add_one_le_of_lt i.2
+
+/- Construct the list of run states corresponding to the full route of the runner.
+   Each sprint overlaps by one cell, so we need to remove the first state from all
+   but the first sprint -/
+def RunPath (D : Devil) (p n : Nat) (ppos : 0 < p) : List RunState :=
+  if hlz : (make_run D p n ppos).sprints.length = 0 then [run_start] else
+  ((make_run D p n ppos).sprints.head (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))) ++
+  (List.flatten (List.map List.tail (make_run D p n ppos).sprints.tail))
+
+-- A RunPath of length zero is just the single list [run_start]
+lemma run_path_of_length_zero (D : Devil) (p : Nat) (ppos : 0 < p) :
+  RunPath D p 0 ppos = [run_start] := by
+  unfold RunPath make_run
+  rw [dif_pos]
+  rw [if_pos rfl, empty_builder_sprints]
+  exact List.length_nil
+
+-- Any run state in the 'run path' must exist in some sprint of the run builder
+lemma make_run_sprints_getElem_exists_of_run_path_mem (D : Devil) (p n : Nat) (ppos : 0 < p)
+  (npos : 0 < n) (rs : RunState) (hmem : rs ∈ RunPath D p n ppos) :
+  ∃ (i : Fin ((make_run D p n ppos).sprints.length)),
+  ∃ (j : Fin ((make_run D p n ppos).sprints[i].length)),
+  (make_run D p n ppos).sprints[i][j] = rs := by
+  unfold RunPath at hmem
+  have hslnz : (make_run D p n ppos).sprints.length ≠ 0 := by
+    rw [make_run_sprints_length]
+    exact Nat.ne_zero_iff_zero_lt.mpr npos
+  have hslpos : 0 < (make_run D p n ppos).sprints.length :=
+    Nat.pos_of_ne_zero hslnz
+  rw [dif_neg hslnz] at hmem
+  rcases List.mem_append.mp hmem with lhs | rhs
+  · -- Handle the case where 'rs' was in the first sprint
+    rw [← List.getElem_zero_eq_head hslpos] at lhs
+    rcases List.getElem_of_mem lhs with ⟨j, jlt, h⟩
+    use ⟨0, Nat.pos_of_ne_zero hslnz⟩, ⟨j, jlt⟩, h
+  -- Otherwise use various list identities to get the original
+  -- location of 'rs' within the sprints
+  rcases List.mem_flatten.mp rhs with ⟨s, smem, hmem'⟩
+  rcases List.mem_map.mp smem with ⟨s', s'mem, rfl⟩
+  rcases List.getElem_of_mem (List.mem_of_mem_tail s'mem) with ⟨i, ilt, s'elem⟩
+  rcases List.getElem_of_mem (List.mem_of_mem_tail hmem') with ⟨j, jlt, rselem⟩
+  rw [← s'elem] at jlt
+  use ⟨i, ilt⟩, ⟨j, jlt⟩
+  rw [← getElem_congr_coll s'elem] at rselem
+  exact rselem
