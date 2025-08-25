@@ -3,6 +3,9 @@ import AngelDevil.Basic
 import AngelDevil.Bound
 import AngelDevil.Util
 
+set_option linter.style.longLine false
+set_option linter.style.multiGoal false
+
 /- Máthé defines a "nice" devil as one who "never eats a square on which the Angel has
    previously stayed nor a square on which the Angel could have jumped at a previous stage but
    did not."
@@ -117,3 +120,12 @@ lemma make_nice_is_nice (D : Devil) (p : Nat) : nice (make_nice D) p := by
   split_ifs with hnc
   · exact hnc
   · exact nothing_is_nice A
+
+-- Any devil that eats the origin at some point of some journey is not nice
+lemma not_nice_of_eats_origin (D : Devil) (p : Nat) :
+  (∃ (A : Journey p) (i : Fin ((steps A) + 1)), (response D (subjourney A i.1 i.2)) = (0, 0)) → ¬nice D p := by
+  rintro ⟨A, i, h⟩
+  unfold nice mean_cell; push_neg
+  use (subjourney A i.1 i.2)
+  left
+  assumption
