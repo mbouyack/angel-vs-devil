@@ -192,16 +192,25 @@ lemma sprint_getElem_zero_of_ppos (p : Nat) (rs₀ : RunState) (eaten : List (In
   fun ppos ↦ sprint_partial_getElem_zero_of_nonnil p 0 (loc rs₀) eaten rs₀
     (sprint_nonnil_of_ppos p rs₀ eaten ppos)
 
+-- All run states in a sprint are close to the start of that sprint
+lemma sprint_close_mem_head (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten : List (Int × Int)) :
+  ∀ x ∈ (sprint p rs₀ eaten), close p (loc x)
+  (loc ((sprint p rs₀ eaten).head (sprint_nonnil_of_ppos p rs₀ eaten hpos))) := by
+  intro x xmem
+  have hnnil := sprint_nonnil_of_ppos p rs₀ eaten hpos
+  unfold sprint at *
+  rw [close_comm]
+  convert sprint_partial_mem_close p 0 (loc rs₀) eaten rs₀ x xmem
+  rwa [List.head_eq_getElem_zero hnnil, sprint_partial_getElem_zero_of_nonnil]
+
 -- Prove that the first and last cells in a sprint are "close"
 lemma sprint_close_first_last (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten : List (Int × Int)) :
   close p
   (loc ((sprint p rs₀ eaten).head (sprint_nonnil_of_ppos p rs₀ eaten hpos)))
   (loc ((sprint p rs₀ eaten).getLast (sprint_nonnil_of_ppos p rs₀ eaten hpos))) := by
   have hnnil := sprint_nonnil_of_ppos p rs₀ eaten hpos
-  unfold sprint at *
-  rw [List.head_eq_getElem_zero hnnil, sprint_partial_getElem_zero_of_nonnil]
-  · exact sprint_partial_mem_close p 0 (loc rs₀) eaten _ _ (List.getLast_mem hnnil)
-  · assumption
+  rw [close_comm]
+  exact sprint_close_mem_head p hpos rs₀ eaten _ (List.getLast_mem hnnil)
 
 -- TODO: This might be useful more generally
 -- Maybe put this in 'Basic'?
@@ -262,6 +271,11 @@ lemma final_state_loc_eq_journey_last {p : Nat} (S : RunBuilder p) :
 def next_sprint {p : Nat} (S : RunBuilder p) : List RunState :=
   sprint p (final_state S) S.eaten
 
+lemma next_sprint_nonnil {p : Nat} (S : RunBuilder p) :
+  next_sprint S ≠ [] := by
+  apply sprint_nonnil_of_ppos
+  exact S.ppos
+
 -- The initial state of the next sprint is the
 -- same as the final state of the builder
 lemma next_sprint_first_eq_builder_last {p : Nat} (S : RunBuilder p) :
@@ -273,12 +287,20 @@ lemma next_sprint_first_eq_builder_last {p : Nat} (S : RunBuilder p) :
   rw [sprint_getElem_zero_of_ppos]
   exact S.ppos
 
+-- Every element of 'next_sprint' is close to its head
+lemma next_sprint_close_mem_head {p : Nat} (S : RunBuilder p) :
+  ∀ x ∈ (next_sprint S),
+  close p (loc x) (loc ((next_sprint S).head (next_sprint_nonnil _))) := by
+  intro x xmem
+  apply sprint_close_mem_head
+  · exact S.ppos
+  · exact xmem
+
 -- The last cell of the next sprint is "close" to the
 -- last cell of the builder journey.
 lemma next_sprint_last_close_builder_last {p : Nat} (S : RunBuilder p) :
-  close p (loc ((next_sprint S).getLast (sprint_nonnil_of_ppos p (final_state S) S.eaten S.ppos))) (last S.A) := by
-  rw [← final_state_loc_eq_journey_last]
-  nth_rw 2 [next_sprint_first_eq_builder_last S]
+  close p (loc ((next_sprint S).getLast (next_sprint_nonnil _))) (last S.A) := by
+  rw [← final_state_loc_eq_journey_last, next_sprint_first_eq_builder_last S]
   rw [close_comm, List.getElem_zero]
   exact sprint_close_first_last _ S.ppos _ _
 
@@ -522,42 +544,141 @@ def Runner (D : Devil) (p n : Nat) (ppos : 0 < p) : Journey p :=
 -- Each cell in the runner's journey (other than the first)
 -- corresponds to the final location of the previous sprint.
 lemma make_run_journey_cell (D : Devil) (p n : Nat) (ppos : 0 < p) :
-  ∀ (i : Fin n),
-  cell (make_run D p n ppos).A i.succ
-    (by rw [make_run_journey_steps]; exact Nat.add_one_lt_add_one_iff.mpr i.2) =
+  ∀ i (ilt : i < n),
+  cell (make_run D p n ppos).A (i + 1)
+    (by rw [make_run_journey_steps]; exact Nat.add_one_lt_add_one_iff.mpr ilt) =
   (loc (((make_run D p n ppos).sprints[i]'
-    (by rw [make_run_sprints_length]; exact i.2)).getLast
+    (by rwa [make_run_sprints_length])).getLast
       (by
         apply (make_run D p n ppos).nonnil
         apply List.getElem_mem
       ))) := by
-  intro i
-  rw [cell_congr_idx (make_run D p n ppos).A (Fin.val_succ i)]
+  intro i ilt
   -- Prove sprints is nonnil so we can use RunBuilder.dest below
-  have hsnn : (make_run D p (i.val + 1) ppos).sprints ≠ [] := by
+  have hsnn : (make_run D p (i + 1) ppos).sprints ≠ [] := by
     apply List.ne_nil_of_length_pos
     rw [make_run_sprints_length]
     exact Nat.add_one_pos _
-  have islt : i.val + 1 < n + 1 :=
-    Nat.add_one_lt_add_one_iff.mpr i.2
+  have islt : i + 1 < n + 1 :=
+    Nat.add_one_lt_add_one_iff.mpr ilt
   rw [← subjourney_last_cell, make_run_subjourney]; swap
   · assumption -- bounds check
-  rw [((make_run D p (i.val + 1) ppos).dest hsnn).symm]
+  rw [((make_run D p (i + 1) ppos).dest hsnn).symm]
   congr
   -- Rewrite the sprints of the sub-run as 'take' of the sprints of the full run.
-  rw [List.getLast_congr _ _ (make_run_sprints_take D p (i.val + 1) n ppos islt).symm]; swap
+  rw [List.getLast_congr _ _ (make_run_sprints_take D p (i + 1) n ppos islt).symm]; swap
   · -- Resolve pending bounds check
     apply List.ne_nil_of_length_pos
-    have ispos : 0 < i.val + 1 := Nat.add_one_pos _
+    have ispos : 0 < i + 1 := Nat.add_one_pos _
     rwa [List.length_take_of_le]
     rw [make_run_sprints_length]
-    exact Nat.add_one_le_of_lt i.2
+    exact Nat.add_one_le_of_lt ilt
   -- Apply list identities to resolve goal
   rw [List.getLast_eq_getElem, List.getElem_take]; congr
   rw [List.length_take_of_le]
   · exact Nat.add_one_sub_one _
   · rw [make_run_sprints_length]
-    exact Nat.add_one_le_of_lt i.2
+    exact Nat.add_one_le_of_lt ilt
+
+-- Each sprint is created by calling 'next_sprint' on some shorter 'make_run'
+lemma make_run_sprint (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  ∀ i (ilt : i < n),
+  (make_run D p n ppos).sprints[i]'(by rwa [make_run_sprints_length]) =
+  (next_sprint (make_run D p i ppos)) := by
+  intro i ilt
+  rw [getElem_congr_coll (make_run_sprints_recurrence D p n ppos (Nat.zero_lt_of_lt ilt))]
+  by_cases ilt' : i < n - 1
+  · rw [← List.getElem_append_left']; swap
+    · rwa [make_run_sprints_length]
+    · convert make_run_sprint D p (n-1) ppos i ilt'
+  rename' ilt' => nple; push_neg at nple
+  have inp := le_antisymm (Nat.le_sub_one_of_lt ilt) nple
+  rw [List.getElem_append_right, List.getElem_singleton, inp]
+  rwa [make_run_sprints_length]
+
+-- Every element of a sprint is close to the head of that sprint
+lemma make_run_close_sprint_mem_head (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  ∀ s, (smem : s ∈ (make_run D p n ppos).sprints) → ∀ x ∈ s,
+  close p (loc x) (loc (s.head (RunBuilder.nonnil _ _ smem))) := by
+  intro s smem x xmem
+  rcases List.getElem_of_mem smem with ⟨i, ilt, rfl⟩
+  rw [make_run_sprints_length] at ilt
+  have nseq := make_run_sprint D p n ppos i ilt
+  convert next_sprint_close_mem_head (make_run D p i ppos) x (nseq ▸ xmem)
+
+-- The last element of each sprint equals the first element of the next
+-- TODO: This seems longer than it should need to be.
+-- Perhaps we're missing some useful 'sprints' theorems?
+lemma make_run_sprint_last_eq_sprint_head (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  ∀ i (islt : i + 1 < n),
+  ((make_run D p n ppos).sprints[i]'(by
+    rw [make_run_sprints_length]; exact lt_trans (Nat.lt_add_one _) islt)).getLast
+    (by apply RunBuilder.nonnil _ _ (List.getElem_mem _)) =
+  ((make_run D p n ppos).sprints[i+1]'(by rwa [make_run_sprints_length])).head
+    (by apply RunBuilder.nonnil _ _ (List.getElem_mem _)) := by
+  intro i islt
+  have nnz : n ≠ 0 := by
+    intro nz; subst nz
+    exact (Nat.not_lt_zero _) islt
+  -- If i + 1 ≠ n - 1, we can close the goal with recursion
+  by_cases islt' : i + 1 < n - 1
+  · convert make_run_sprint_last_eq_sprint_head D p (n - 1) ppos i islt' using 2
+    repeat
+    rw [getElem_congr_coll (make_run_sprints_recurrence D p n ppos (Nat.pos_of_ne_zero nnz))]
+    rw [← List.getElem_append_left']
+  rename' islt' => nple; push_neg at nple
+  have iseq := le_antisymm (Nat.le_sub_one_of_lt islt) nple
+  rw [List.head_eq_getElem]
+  rw [getElem_congr_coll (make_run_sprint D p n ppos (i+1) islt)]
+  rw [← next_sprint_first_eq_builder_last]
+  unfold final_state
+  have lnz : (make_run D p (i + 1) ppos).sprints.length ≠ 0 := by
+    rw [make_run_sprints_length]
+    exact Nat.add_one_ne_zero _
+  rw [dif_neg lnz]; congr
+  have mrst := make_run_sprints_take D p (i + 1) n ppos (lt_trans islt (Nat.lt_add_one _))
+  rw [← List.getLast_congr _ _ mrst]; swap
+  · -- Resolve nil check
+    intro hnil
+    rcases List.take_eq_nil_iff.mp hnil with lhs | rhs
+    · exact (Nat.add_one_ne_zero _) lhs
+    · apply nnz
+      rw [← make_run_sprints_length D p n ppos]
+      exact List.length_eq_zero_iff.mpr rhs
+  rw [List.getLast_eq_getElem, List.getElem_take]; congr
+  rw [List.length_take_of_le, Nat.add_one_sub_one]
+  rw [make_run_sprints_length]
+  exact le_of_lt islt
+
+-- Every element of a sprint is "close" to the corresponding journey cell
+lemma make_run_sprint_mem_journey_cell_close (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  ∀ i (ilt : i < n), ∀ rs ∈ (make_run D p n ppos).sprints[i]'(by rwa [make_run_sprints_length]),
+  close p (loc rs) (cell (make_run D p n ppos).A i
+    (by rw [make_run_journey_steps]; exact lt_trans ilt (Nat.lt_add_one _))) := by
+  intro i ilt rs hmem
+  -- First handle the case where i = 0
+  by_cases iz : i = 0
+  · subst iz
+    rw [journey_start]
+    convert make_run_close_sprint_mem_head D p n ppos _ (List.getElem_mem _) rs hmem using 1
+    have hnnil : (make_run D p n ppos).sprints ≠ [] := by
+      apply List.ne_nil_of_length_pos
+      rwa [make_run_sprints_length]
+    rw [List.head_eq_getElem_zero, RunBuilder.origin _ hnnil]; rfl
+  rename' iz => inz; push_neg at inz
+  -- If i ≠ 0, swap in '(i-1)+1' for 'i' and rewrite with 'make_run_journey_cell'
+  have iplt : i - 1 < n := by
+    apply lt_of_le_of_lt _ ilt
+    exact Nat.sub_le _ _
+  have := make_run_journey_cell D p n ppos (i-1) iplt
+  rw [cell_congr_idx _ (Nat.sub_one_add_one inz)] at this
+  rw [this, make_run_sprint_last_eq_sprint_head]; swap
+  · -- Resolve bounds check
+    rwa [Nat.sub_one_add_one inz]
+  apply make_run_close_sprint_mem_head D p n ppos
+  · apply List.getElem_mem
+  · convert hmem
+    exact Nat.sub_one_add_one inz
 
 /- Construct the list of run states corresponding to the full route of the runner.
    Each sprint overlaps by one cell, so we need to remove the first state from all
@@ -567,7 +688,7 @@ def RunPath (D : Devil) (p n : Nat) (ppos : 0 < p) : List RunState :=
   ((make_run D p n ppos).sprints.head (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))) ++
   (List.flatten (List.map List.tail (make_run D p n ppos).sprints.tail))
 
--- A RunPath of length zero is just the single list [run_start]
+-- A RunPath of length zero is just the singleton list [run_start]
 lemma run_path_of_length_zero (D : Devil) (p : Nat) (ppos : 0 < p) :
   RunPath D p 0 ppos = [run_start] := by
   unfold RunPath make_run
