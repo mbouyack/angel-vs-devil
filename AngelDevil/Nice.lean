@@ -123,9 +123,27 @@ lemma make_nice_is_nice (D : Devil) (p : Nat) : nice (make_nice D) p := by
 
 -- Any devil that eats the origin at some point of some journey is not nice
 lemma not_nice_of_eats_origin (D : Devil) (p : Nat) :
-  (∃ (A : Journey p) (i : Fin ((steps A) + 1)), (response D (subjourney A i.1 i.2)) = (0, 0)) → ¬nice D p := by
-  rintro ⟨A, i, h⟩
+  (∃ (A : Journey p) (i : Nat) (ilt : i < steps A + 1), (response D (subjourney A i ilt)) = (0, 0)) → ¬nice D p := by
+  rintro ⟨A, i, ilt, h⟩
   unfold nice mean_cell; push_neg
-  use (subjourney A i.1 i.2)
+  use (subjourney A i ilt)
   left
   assumption
+
+-- If the devil ever eats a cell that is close to one previously
+-- visited by the angel, then that devil is not nice
+lemma not_nice_of_eats_close (D : Devil) (p : Nat) :
+  (∃ (A : Journey p) (i j : Nat) (ilt : i < j) (jlt : j < steps A + 1),
+    close p (cell A i (lt_trans ilt jlt)) (response D (subjourney A j jlt))) → ¬nice D p := by
+  rintro ⟨A, i, j, ilt, jlt, h⟩
+  unfold nice mean_cell; push_neg
+  use (subjourney A j jlt)
+  right
+  use ⟨i, by rw [subjourney_steps]; exact (lt_trans ilt (Nat.lt_add_one _))⟩
+  unfold mean_fun
+  constructor
+  · simp; push_neg
+    rw [subjourney_steps]
+    exact Nat.ne_of_lt ilt
+  · rwa [close_comm, subjourney_cell]
+    exact Nat.le_of_lt ilt
