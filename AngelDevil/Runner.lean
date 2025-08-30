@@ -580,6 +580,41 @@ lemma make_run_journey_cell (D : Devil) (p n : Nat) (ppos : 0 < p) :
   · rw [make_run_sprints_length]
     exact Nat.add_one_le_of_lt ilt
 
+-- Each cell in the 'eaten' list is the devil's response to some shorter journey
+lemma make_run_eaten (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  ∀ i (ilt : i < n + 1),
+  (make_run D p n ppos).eaten[i]'(by rwa [make_run_eaten_length]) =
+  (response D (make_run D p i ppos).A) := by
+  intro i ilt
+  -- If i ≠ n, we can recurse
+  by_cases ilt' : i < n
+  · have npos : 0 < n := Nat.zero_lt_of_lt ilt'
+    have nnz : n ≠ 0 := Nat.ne_zero_of_lt npos
+    rw [getElem_congr_coll (make_run_eaten_recurrence D p n ppos npos)]
+    rw [← List.getElem_append_left']; swap
+    · -- Resolve bounds check
+      rwa [make_run_eaten_length, Nat.sub_one_add_one nnz]
+    apply make_run_eaten
+    exact lt_of_lt_of_eq ilt' (Nat.sub_one_add_one nnz).symm
+  rename' ilt' => nle; push_neg at nle
+  have hin : i = n := le_antisymm (Nat.le_of_lt_add_one ilt) nle
+  subst hin
+  -- Handle the case where i = 0
+  by_cases iz : i = 0
+  · subst iz
+    have rwl : (make_run D p 0 ppos).eaten = [response D (NoSteps p)] := by
+      rw [make_run_eq_empty_of_length_zero, empty_builder_eaten]
+    have rwr : (make_run D p 0 ppos).A = (NoSteps p) := by
+      rw [make_run_eq_empty_of_length_zero, empty_builder_journey]
+    rw [getElem_congr_coll rwl, rwr, List.getElem_singleton]
+  rename' iz => inz; push_neg at inz
+  have ipos : 0 < i := Nat.zero_lt_of_ne_zero inz
+  rw [getElem_congr_coll (make_run_eaten_recurrence D p i ppos ipos)]
+  rw [List.getElem_append_right]; swap
+  · -- Resolve bounds check
+    rw [make_run_eaten_length, Nat.sub_one_add_one inz]
+  rw [List.getElem_singleton]
+
 -- Each sprint is created by calling 'next_sprint' on some shorter 'make_run'
 lemma make_run_sprint (D : Devil) (p n : Nat) (ppos : 0 < p) :
   ∀ i (ilt : i < n),
@@ -699,8 +734,8 @@ lemma run_path_of_length_zero (D : Devil) (p : Nat) (ppos : 0 < p) :
 -- Any run state in the 'run path' must exist in some sprint of the run builder
 lemma make_run_sprints_getElem_exists_of_run_path_mem (D : Devil) (p n : Nat) (ppos : 0 < p)
   (npos : 0 < n) (rs : RunState) (hmem : rs ∈ RunPath D p n ppos) :
-  ∃ (i : Fin ((make_run D p n ppos).sprints.length)),
-  ∃ (j : Fin ((make_run D p n ppos).sprints[i].length)),
+  ∃ (i : Nat) (ilt : i < ((make_run D p n ppos).sprints.length)),
+  ∃ (j : Nat) (jlt : j < ((make_run D p n ppos).sprints[i].length)),
   (make_run D p n ppos).sprints[i][j] = rs := by
   unfold RunPath at hmem
   have hslnz : (make_run D p n ppos).sprints.length ≠ 0 := by
@@ -713,7 +748,7 @@ lemma make_run_sprints_getElem_exists_of_run_path_mem (D : Devil) (p n : Nat) (p
   · -- Handle the case where 'rs' was in the first sprint
     rw [← List.getElem_zero_eq_head hslpos] at lhs
     rcases List.getElem_of_mem lhs with ⟨j, jlt, h⟩
-    use ⟨0, Nat.pos_of_ne_zero hslnz⟩, ⟨j, jlt⟩, h
+    use 0, Nat.pos_of_ne_zero hslnz, j, jlt, h
   -- Otherwise use various list identities to get the original
   -- location of 'rs' within the sprints
   rcases List.mem_flatten.mp rhs with ⟨s, smem, hmem'⟩
@@ -721,6 +756,72 @@ lemma make_run_sprints_getElem_exists_of_run_path_mem (D : Devil) (p n : Nat) (p
   rcases List.getElem_of_mem (List.mem_of_mem_tail s'mem) with ⟨i, ilt, s'elem⟩
   rcases List.getElem_of_mem (List.mem_of_mem_tail hmem') with ⟨j, jlt, rselem⟩
   rw [← s'elem] at jlt
-  use ⟨i, ilt⟩, ⟨j, jlt⟩
+  use i, ilt, j, jlt
   rw [← getElem_congr_coll s'elem] at rselem
   exact rselem
+
+-- Recursive definition of RunPath in terms of 'make_run' sprints
+lemma run_path_recurrence (D : Devil) (p n : Nat) (ppos : 0 < p) (npos : 0 < n) :
+  (RunPath D p n ppos) =
+  (RunPath D p (n - 1) ppos) ++ ((make_run D p n ppos).sprints.getLast
+    (by
+      apply List.ne_nil_of_length_pos
+      rwa [make_run_sprints_length]
+    )).tail := by
+  unfold RunPath
+  have hnz : n ≠ 0 := Nat.ne_zero_of_lt npos
+  have hlnz : (make_run D p n ppos).sprints.length ≠ 0 := by
+    rwa [make_run_sprints_length]
+  have hlpos : 0 < (make_run D p n ppos).sprints.length := by
+    exact Nat.pos_of_ne_zero hlnz
+  rw [dif_neg hlnz]
+  -- Handle the case where n = 1
+  by_cases n1 : n = 1
+  · subst n1
+    have hlz : (make_run D p (1 - 1) ppos).sprints.length = 0 := by
+      rw [make_run_sprints_length]
+    rw [dif_pos hlz]
+    have hstn : (make_run D p 1 ppos).sprints.tail = [] := by
+      apply List.eq_nil_of_length_eq_zero
+      rw [List.length_tail, make_run_sprints_length, Nat.sub_self]
+    rw [hstn, List.map_nil, List.flatten_nil, List.append_nil, ← List.getElem_zero_eq_head]; swap
+    · assumption
+    have gE0nn : (make_run D p 1 ppos).sprints[0] ≠ [] := by
+      apply (make_run D p 1 ppos).nonnil
+      apply List.getElem_mem
+    rw [← List.head_cons_tail _ gE0nn, List.singleton_append, ← List.getElem_zero_eq_head]; swap
+    · -- Resolve bounds check
+      exact List.length_pos_of_ne_nil gE0nn
+    rw [(make_run D p 1 ppos).origin]; swap
+    · -- Resolve bounds check
+      exact List.ne_nil_of_length_pos hlpos
+    rw [List.getLast_eq_getElem]; congr 2
+    apply getElem_congr_idx
+    rw [make_run_sprints_length, Nat.sub_self]
+  rename' n1 => nne1; push_neg at nne1
+  have h1ltn : 1 < n := by
+    exact Nat.lt_of_le_of_ne (Nat.add_one_le_of_lt (Nat.pos_of_ne_zero hnz)) nne1.symm
+  have hlnz' : (make_run D p (n - 1) ppos).sprints.length ≠ 0 := by
+    rw [make_run_sprints_length]
+    exact Nat.sub_ne_zero_of_lt h1ltn
+  have hlpos' : 0 < (make_run D p (n - 1) ppos).sprints.length := by
+    exact Nat.pos_of_ne_zero hlnz'
+  -- First, manipulate each side of the equation so that the
+  -- left-hand sides of the appends match, and we can 'congr'
+  rw [dif_neg hlnz', List.append_assoc, ← List.getElem_zero_eq_head]; swap
+  · assumption
+  have := make_run_sprints_recurrence D p n ppos (Nat.pos_of_ne_zero hnz)
+  rw [getElem_congr_coll this]
+  rw [List.getElem_append_left, List.getElem_zero_eq_head]; swap
+  · -- Resolve bounds check
+    exact Nat.pos_of_ne_zero hlnz'
+  congr
+  -- Apply more list identities until we can 'congr' again
+  nth_rw 1 [this, List.tail_append_of_ne_nil, List.map_append, List.map_singleton]; swap
+  · -- Resolve bounds check
+    apply List.ne_nil_of_length_pos
+    exact Nat.pos_of_ne_zero hlnz'
+  rw [List.flatten_append, List.flatten_singleton]; congr
+  rw [← make_run_sprint D p n ppos, List.getLast_eq_getElem]
+  · congr; rw [make_run_sprints_length]
+  · exact Nat.sub_lt npos (by norm_num)
