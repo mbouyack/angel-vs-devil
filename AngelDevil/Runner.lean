@@ -69,6 +69,9 @@ def turn_right (rs : RunState) : RunState where
     rw [Int.neg_mul_neg, Int.add_comm]
     exact rs.unit
 
+-- Turning right doesn't change the location, only the direction
+lemma turn_right_loc (rs : RunState) : loc (turn_right rs) = loc rs := rfl
+
 abbrev blocked (eaten : List (Int × Int)) (x : Int × Int) :=
   x.1 < 0 ∨ x ∈ eaten
 
@@ -171,6 +174,40 @@ decreasing_by
   rw [add_comm ns, Nat.sub_add_eq, Nat.add_one_sub_one, Nat.sub_add_comm nsle]
   exact Nat.lt_add_one_of_le (le_refl _)
 
+-- Prove that a partial sprint never steps on an eaten cell
+lemma sprint_partial_avoids_eaten (p ns : Nat) (start : Int × Int)
+  (eaten : List (Int × Int)) (rs : RunState) (hsafe : loc rs ∉ eaten) :
+  ∀ x ∈ sprint_partial p ns start eaten rs, loc x ∉ eaten := by
+  intro x hmem₀ hmem₁
+  unfold sprint_partial at hmem₀
+  split_ifs at hmem₀ with h₀
+  · exact (List.mem_nil_iff _).mp hmem₀
+  push_neg at h₀
+  rcases List.mem_cons.mp hmem₀ with lhs | rhs
+  · subst lhs; contradiction
+  -- This next part is the most technical:
+  -- We have to go through each of the advancement cases and
+  -- show that we never step on an eaten cell
+  have hsafe' : loc (next_step eaten rs) ∉ eaten := by
+    intro hmem₂
+    unfold next_step at hmem₂
+    split_ifs at hmem₂ with h₁ h₂
+    · rw [turn_right_loc] at hmem₂
+      contradiction
+    · unfold blocked at h₂
+      push_neg at h₂
+      exact h₂.2 hmem₂
+    · unfold blocked at h₁
+      push_neg at h₁
+      exact h₁.2 hmem₂
+  exact sprint_partial_avoids_eaten p (ns + 1) start eaten (next_step eaten rs) hsafe' x rhs hmem₁
+termination_by 2 * p + 1 - ns
+decreasing_by
+  rw [Nat.sub_add_eq]
+  apply Nat.sub_one_lt (Nat.sub_ne_zero_of_lt (Nat.lt_add_one_of_le _))
+  push_neg at h₀
+  exact h₀.1
+
 -- A sprint is a sequence of steps taken by the runner between moves by the devil.
 -- Later we will show that the cells corresponding to the beginning and end of
 -- the sprints can be used to construct an angel which escapes the Nice Devil.
@@ -218,6 +255,14 @@ lemma sprint_close_first_last (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten
   have hnnil := sprint_nonnil_of_ppos p rs₀ eaten hpos
   rw [close_comm]
   exact sprint_close_mem_head p hpos rs₀ eaten _ (List.getLast_mem hnnil)
+
+-- The runner never visits an eaten cell
+-- (as long as they don't start on an eaten cell)
+lemma sprint_avoids_eaten (p : Nat) (rs₀ : RunState)
+  (eaten : List (Int × Int)) (hsafe : loc rs₀ ∉ eaten) :
+  ∀ x, x ∈ (sprint p rs₀ eaten) → loc x ∉ eaten :=
+  fun x smem emem ↦
+  sprint_partial_avoids_eaten p 0 (loc rs₀) eaten rs₀ hsafe x smem emem
 
 -- TODO: This might be useful more generally
 -- Maybe put this in 'Basic'?
