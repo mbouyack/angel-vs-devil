@@ -192,6 +192,44 @@ lemma _find_first_is_sat {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] 
   rcases exsat with ⟨i, isat⟩
   exact _find_first_is_sat_impl f 0 ⟨i, Fin.zero_le _, isat⟩
 
+-- Implment '_find_last' by reversing the direction of search with '_find_first'
+def _find_last {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] : Fin (n+1) :=
+  Fin.last n - (_find_first (fun i ↦ f ((Fin.last n) - i)))
+
+lemma _find_last_is_last {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] :
+  ∀ i, f i → i ≤ _find_last f := by
+  intro i h
+  unfold _find_last
+  -- Most of this is just manipulating the inequality
+  -- so that we can apply '_find_first_is_first'
+  apply Fin.le_iff_val_le_val.mpr
+  rw [Fin.sub_val_of_le]; swap
+  · exact Nat.le_of_lt_add_one (Fin.prop _)
+  apply Nat.le_sub_of_add_le
+  rw [add_comm]
+  apply Nat.add_le_of_le_sub
+  · exact Fin.le_iff_val_le_val.mpr (Fin.le_last _)
+  rw [← Fin.sub_val_of_le (Fin.le_last _)]
+  apply Fin.le_iff_val_le_val.mp
+  apply _find_first_is_first
+  convert h
+  -- Now switch back to Nat again to finish the goal
+  apply (Fin.val_eq_val _ _).mp
+  rw [Fin.sub_val_of_le (Fin.le_last _), Fin.sub_val_of_le (Fin.le_last _)]
+  rw [Nat.sub_sub_self (Fin.le_last _)]
+
+-- Prove that the element returned by 'find_last' actually satisfies 'f'
+lemma _find_last_is_sat {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (exsat : ∃ i, f i) :
+  f (_find_last f) := by
+  unfold _find_last
+  rcases exsat with ⟨i, isat⟩
+  apply _find_first_is_sat (fun i ↦ f ((Fin.last n) - i))
+  use (Fin.last n - i)
+  convert isat
+  apply (Fin.val_eq_val _ _).mp
+  rw [Fin.sub_val_of_le (Fin.le_last _), Fin.sub_val_of_le (Fin.le_last _)]
+  rw [Nat.sub_sub_self (Fin.le_last _)]
+
 -- Narrows the domain of a function on 'Fin' by one
 abbrev narrow_fin_fun {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (nnz : n ≠ 0) : Fin (n - 1 + 1) → Prop :=
   fun i ↦ f ⟨i.val, (lt_trans (lt_of_lt_of_eq i.2 (Nat.sub_one_add_one nnz)) (Nat.lt_add_one _))⟩
