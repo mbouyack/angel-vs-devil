@@ -19,6 +19,13 @@ set_option linter.style.longLine false
   v : Int -- Direction of travel, y-coord
   unit : u * u + v * v = 1 -- ⟨u, v⟩ should be a unit vector
 
+-- Prove that we can determine whether two 'RunState' are equal
+instance : DecidableEq RunState := fun a b ↦
+  if h : a.x = b.x ∧ a.y = b.y ∧ a.u = b.u ∧ a.v = b.v then
+    isTrue (RunState.ext_iff.mpr h)
+  else
+    isFalse (fun h' ↦ h (RunState.ext_iff.mp h'))
+
 -- Convenience macros for repackaging the location and direction
 -- parameters as Int × Int
 def loc (rs : RunState) : Int × Int := ⟨rs.x, rs.y⟩
@@ -825,3 +832,59 @@ lemma run_path_recurrence (D : Devil) (p n : Nat) (ppos : 0 < p) (npos : 0 < n) 
   rw [← make_run_sprint D p n ppos, List.getLast_eq_getElem]
   · congr; rw [make_run_sprints_length]
   · exact Nat.sub_lt npos (by norm_num)
+
+-- A predicate to check if 'rs' is an element of a particular sprint.
+-- Argument is of type 'Fin (n - 1 + 1)' to make it compatible with
+-- '_find_last' which requires an argument of type Fin (m+1) for some 'm'.
+abbrev is_sprint_mem (D : Devil) (p n : Nat) (ppos : 0 < p)
+  (npos : 0 < n) (rs : RunState) : (i : Fin (n - 1 + 1)) → Prop :=
+  fun i ↦ (rs ∈ (make_run D p n ppos).sprints[i]'(by
+    rw [make_run_sprints_length]
+    convert i.2
+    exact (Nat.sub_one_add_one (Nat.ne_zero_of_lt npos)).symm))
+
+-- Returns the index of the last sprint of the 'make_run' of which 'rs' is an element
+-- For the proof
+def find_last_sprint_with_state (D : Devil) (p n : Nat) (ppos : 0 < p)
+  (npos : 0 < n) (rs : RunState) : Nat :=
+  (_find_last (is_sprint_mem D p n ppos npos rs)).val
+
+-- Prove that 'rs' appears in no later sprint than the one
+-- found by 'find_last_sprint_with_state'
+lemma last_sprint_with_state_is_last (D : Devil) (p n : Nat)
+  (ppos : 0 < p) (npos : 0 < n) (rs : RunState) : ∀ (i : Nat) (ilt : i < n),
+  rs ∈ (make_run D p n ppos).sprints[i]'(by rwa [make_run_sprints_length]) →
+  i ≤ find_last_sprint_with_state D p n ppos npos rs := by
+  intro i ilt hmem
+  unfold find_last_sprint_with_state
+  -- First, work around Fin awkwardness
+  have h₀ : n - 1 + 1 = n := Nat.sub_one_add_one (Nat.ne_zero_of_lt npos)
+  have h₁ : (@Fin.mk (n - 1 + 1) i (by rwa [h₀])).val = i := by simp
+  rw [← h₁]
+  apply Fin.le_iff_val_le_val.mp
+  -- Then apply the corresponding theorem for '_find_last'
+  apply _find_last_is_last
+  exact hmem
+
+-- The return value of 'find_last_sprint_with_state' is
+-- less than the number of sprints in the 'make_run'
+lemma last_sprint_with_state_lt_length (D : Devil) (p n : Nat)
+  (ppos : 0 < p) (npos : 0 < n) (rs : RunState) :
+  find_last_sprint_with_state D p n ppos npos rs < (make_run D p n ppos).sprints.length := by
+  unfold find_last_sprint_with_state
+  rw [make_run_sprints_length]
+  apply lt_of_lt_of_eq _ (Nat.sub_one_add_one (Nat.ne_zero_of_lt npos))
+  exact (_find_last (is_sprint_mem D p n ppos npos rs)).2
+
+-- The sprint indicated by 'find_last_sprint_with_state' does
+-- in-fact contain the element 'rs'
+lemma last_sprint_with_state_is_sat (D : Devil) (p n : Nat)
+  (ppos : 0 < p) (npos : 0 < n) (rs : RunState) :
+  (∃ (i : Nat) (ilt : i < n), rs ∈ (make_run D p n ppos).sprints[i]'(by
+    rwa [make_run_sprints_length])) →
+  rs ∈ (make_run D p n ppos).sprints[find_last_sprint_with_state D p n ppos npos rs]'(
+    last_sprint_with_state_lt_length D p n ppos npos rs
+  ) := by
+  rintro ⟨i, ilt, hmem⟩
+  let i' : Fin (n - 1 + 1) := ⟨i, by rwa [(Nat.sub_one_add_one (Nat.ne_zero_of_lt npos))]⟩
+  exact _find_last_is_sat ((is_sprint_mem D p n ppos npos rs)) ⟨i', hmem⟩
