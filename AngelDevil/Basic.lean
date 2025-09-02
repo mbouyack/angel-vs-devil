@@ -87,6 +87,10 @@ lemma close_of_le_of_close (r₀ r₁ : Nat) (u v : Int × Int) :
 lemma cell_congr_idx {p : Nat} (A : Journey p) {i j : Nat} (hij : i = j) (ilt : i < steps A + 1) :
   cell A i ilt = cell A j (hij ▸ ilt) := by congr
 
+-- Two 'cell' invocations are equal if the journies are equal
+lemma cell_congr_journey {p : Nat} {A B : Journey p} (hAB : A = B) (i : Nat) (ilt : i < steps A + 1) :
+  cell A i ilt = cell B i (hAB ▸ ilt) := by congr
+
 -- Get the final cell of the journey
 def last {p : Nat} (A : Journey p) : Int × Int := cell A (steps A) (Nat.lt_add_one _)
 
