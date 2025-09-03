@@ -1079,3 +1079,99 @@ lemma make_run_runner_avoids_eaten_cells_of_nice (D : Devil) (p n : Nat) (ppos :
     · exact lt_of_le_of_ne (Nat.le_of_lt_add_one llt) lnei
   -- Use 'sprint_avoids_eaten' with the above sub-result to get a contradiction
   apply sprint_avoids_eaten p rs₀ MR.eaten hsafe _ (List.getElem_mem _) (List.mem_of_getElem h)
+
+-- If the devil is "nice", then no cell visited by the runner was ever eaten by the devil.
+lemma run_path_not_eaten_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (hnice : nice D p) :
+  ∀ rs ∈ (RunPath D p n ppos), (loc rs) ∉ (make_run D p n ppos).eaten := by
+  intro rs rsmem rseaten
+  -- First handle the case where n = 0
+  by_cases hnz : n = 0
+  · subst hnz
+    rw [run_path_of_length_zero, List.mem_singleton] at rsmem
+    rw [make_run_eq_empty_of_length_zero, empty_builder_eaten, List.mem_singleton] at rseaten
+    subst rsmem
+    unfold loc run_start at rseaten; dsimp at rseaten
+    apply not_nice_of_eats_origin D p _ hnice
+    exact ⟨NoSteps p, 0, Nat.add_one_pos _, rseaten.symm⟩
+  rename' hnz => hnnz; push_neg at hnnz
+  have npos : 0 < n := Nat.pos_of_ne_zero hnnz
+  -- Get the location of 'rs' within 'sprints'
+  have mrsgEe_of_rpm :=
+    make_run_sprints_getElem_exists_of_run_path_mem D p n ppos npos rs rsmem
+  rcases mrsgEe_of_rpm with ⟨i, ilt, j, jlt, hij⟩
+  let MR : RunBuilder p := (make_run D p n ppos)
+  have snnil : MR.sprints ≠ [] := by
+        apply List.ne_nil_of_length_pos
+        rwa [make_run_sprints_length]
+  have eatnnil : MR.eaten ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [make_run_eaten_length]
+    exact Nat.add_one_pos _
+  -- Next handle the case where the cell in question was eaten last
+  by_cases hlast : loc rs = MR.eaten.getLast eatnnil
+  · -- We will show that the devil is not in-fact nice: a contradiction
+    apply not_nice_of_eats_close D p _ hnice
+    have nlt : n < steps MR.A + 1 := by
+      rw [make_run_journey_steps]
+      exact Nat.lt_add_one _
+    use MR.A, i, n, (by convert ilt; rw [make_run_sprints_length]), nlt
+    -- Prove the rewrite of the right-hand cell
+    have rwr : response D (subjourney MR.A n nlt) = loc rs := by
+      rw [hlast, List.getLast_eq_getElem, make_run_eaten]; swap
+      · -- Resolve bounds check
+        rw [make_run_eaten_length, Nat.add_one_sub_one]
+        exact Nat.lt_add_one _
+      rw [make_run_eaten_length, Nat.add_one_sub_one]
+      apply congrArg (fun A ↦ response D A)
+      convert subjourney_full _
+      rw [make_run_journey_steps]
+    rw [rwr, close_comm]
+    -- Apply the sprint-journey closeness theorem
+    apply make_run_sprint_mem_journey_cell_close
+    · exact List.mem_of_getElem hij
+    · convert ilt
+      rw [make_run_sprints_length]
+  rename' hlast => hnl; push_neg at hnl
+  -- If 'rs' wasn't eaten at the end, it must have
+  -- been eaten in some shorter 'make_run'
+  have rseaten' : loc rs ∈ (make_run D p (n - 1) ppos).eaten := by
+    rw [make_run_eaten_recurrence] at rseaten; swap
+    · assumption
+    rcases List.mem_append.mp rseaten with lhs | rhs
+    · assumption
+    apply False.elim (hnl _)
+    rw [List.mem_singleton.mp rhs, List.getLast_eq_getElem, make_run_eaten]; swap
+    · rw [make_run_eaten_length]
+      exact Nat.sub_lt (Nat.add_one_pos _) (by norm_num)
+    rw [make_run_eaten_length]; rfl
+  -- Now, if the eaten cell was not visited in the last sprint, we can recurse
+  by_cases hnmls : rs ∉ MR.sprints.getLast snnil
+  · apply run_path_not_eaten_of_nice D p (n - 1) ppos hnice rs _ rseaten'
+    rw [run_path_recurrence] at rsmem; swap
+    · assumption
+    -- Lean weirdness work-around
+    -- (for some reason "List.mem_append.mp rsmem" doesn't work)
+    have := (@List.mem_append _ _ _ ((MR.sprints.getLast snnil).tail)).mp rsmem
+    rcases this with lhs | rhs
+    · assumption
+    exact False.elim (hnmls (List.mem_of_mem_tail rhs))
+  rename' hnmls => hmls; push_neg at hmls
+  rw [List.getLast_eq_getElem] at hmls
+  rw [getElem_congr_idx (by rw [make_run_sprints_length])] at hmls
+  rcases List.getElem_of_mem hmls with ⟨j', j'lt, hnpj⟩
+  rcases List.getElem_of_mem rseaten with ⟨k, klt, hk⟩
+  -- Since we've already shown that 'loc rs' wasn't eaten last, k ≠ n
+  have knen : k ≠ n := by
+    contrapose! hnl
+    symm at hnl; subst hnl
+    rw [List.getLast_eq_getElem]
+    convert hk.symm
+    rw [make_run_eaten_length, Nat.add_one_sub_one]
+  absurd hk; push_neg
+  rw [← hnpj]
+  apply make_run_runner_avoids_eaten_cells_of_nice
+  · exact hnice
+  · exact Nat.sub_one_lt hnnz
+  · apply Nat.le_sub_one_of_lt
+    rw [make_run_eaten_length] at klt
+    exact lt_of_le_of_ne (Nat.le_of_lt_add_one klt) knen
