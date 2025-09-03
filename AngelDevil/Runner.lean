@@ -1025,3 +1025,57 @@ lemma last_sprint_with_state_is_sat (D : Devil) (p n : Nat)
   rintro ⟨i, ilt, hmem⟩
   let i' : Fin (n - 1 + 1) := ⟨i, by rwa [(Nat.sub_one_add_one (Nat.ne_zero_of_lt npos))]⟩
   exact _find_last_is_sat ((is_sprint_mem D p n ppos npos rs)) ⟨i', hmem⟩
+
+-- If the devil is "nice", the runner will never visit a cell that was previously eaten.
+-- Note that this result is more general than 'make_run_journey_allowed_of_nice' in that
+-- it applies to *all* cells visited by the runner, not just those in the journey.
+lemma make_run_runner_avoids_eaten_cells_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (hnice : nice D p) :
+  ∀ i (ilt : i < n) j (jlt : j < ((make_run D p n ppos).sprints[i]'(by
+    rwa [make_run_sprints_length])).length) k (kle : k ≤ i),
+    (make_run D p n ppos).eaten[k]'(by
+      rw [make_run_eaten_length]
+      exact lt_trans (lt_of_le_of_lt kle ilt) (Nat.lt_add_one _)
+    ) ≠ loc (((make_run D p n ppos).sprints[i]'(by rwa [make_run_sprints_length]))[j]'(jlt)) := by
+  intro i ilt j jlt k kle
+  rw [getElem_congr_coll (make_run_sprint D p n ppos i ilt)]
+  have lhs_rw : (make_run D p n ppos).eaten[k]'(by
+    rw [make_run_eaten_length]
+    exact lt_trans (lt_of_le_of_lt kle ilt) (Nat.lt_add_one _)
+  ) = ((make_run D p n ppos).eaten.take (i + 1))[k]'(by
+    rw [List.length_take_of_le]
+    · exact Nat.lt_add_one_of_le kle
+    · rw [make_run_eaten_length]
+      apply Nat.add_one_le_of_lt
+      exact lt_trans ilt (Nat.lt_add_one _)
+  ) := by
+    exact List.getElem_take.symm
+  rw [lhs_rw]
+  rw [getElem_congr_coll (make_run_eaten_take D p i n ppos (lt_trans ilt (Nat.lt_add_one _)))]
+  intro h
+  let MR := (make_run D p i ppos)
+  let rs₀ := final_state MR
+  -- TODO: There is a very similar section in 'make_run_journey_allowed_of_nice'
+  -- Can we refactor this into a separate proof somehow?
+  have hsafe : loc rs₀ ∉ MR.eaten := by
+    intro h
+    rcases List.getElem_of_mem h with ⟨l, llt, h⟩
+    rw [make_run_eaten_length] at llt
+    rw [final_state_loc_eq_journey_last, last, make_run_eaten] at h; swap
+    · exact llt
+    rw [← make_run_subjourney D p l i] at h; swap
+    · exact llt
+    rw [cell_congr_idx _ (make_run_journey_steps D p i ppos)] at h
+    -- Handle the case where l = i using 'not_nice_of_eats_journey_cell'
+    by_cases hli : l = i
+    · subst hli
+      absurd hnice
+      apply not_nice_of_eats_journey_cell
+      use MR.A, l, l, le_rfl, (by rwa [make_run_journey_steps])
+    rename' hli => lnei; push_neg at lnei
+    -- Resolve the goal with 'make_run_journey_allowed_of_nice
+    absurd h
+    apply make_run_journey_allowed_of_nice
+    · exact hnice
+    · exact lt_of_le_of_ne (Nat.le_of_lt_add_one llt) lnei
+  -- Use 'sprint_avoids_eaten' with the above sub-result to get a contradiction
+  apply sprint_avoids_eaten p rs₀ MR.eaten hsafe _ (List.getElem_mem _) (List.mem_of_getElem h)
