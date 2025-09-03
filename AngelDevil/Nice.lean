@@ -147,3 +147,25 @@ lemma not_nice_of_eats_close (D : Devil) (p : Nat) :
     exact Nat.ne_of_lt ilt
   · rwa [close_comm, subjourney_cell]
     exact Nat.le_of_lt ilt
+
+-- If the devil ever eats a cell the angel has visited, it is not nice
+lemma not_nice_of_eats_journey_cell (D : Devil) (p : Nat) :
+  (∃ (A : Journey p) (i j : Nat) (ile : i ≤ j) (jlt : j < steps A + 1),
+    (response D (subjourney A j jlt)) = cell A i (lt_of_le_of_lt ile jlt)) → ¬nice D p := by
+  rintro ⟨A, i, j, ile, jlt, h⟩
+  -- First handle the case where i = 0
+  by_cases iz : i = 0
+  · subst iz
+    rw [journey_start] at h
+    exact not_nice_of_eats_origin D p ⟨A, j, jlt, h⟩
+  rename' iz => inz; push_neg at inz
+  apply not_nice_of_eats_close D p
+  use A, (i - 1), j, (lt_of_lt_of_le (Nat.sub_one_lt inz) ile), jlt
+  rw [h]
+  -- Now prove the bound we need on (i - 1)
+  have iplt : i - 1 < steps A := by
+    apply Nat.sub_one_lt_of_le (Nat.pos_of_ne_zero inz)
+    exact le_trans ile (Nat.le_of_lt_add_one jlt)
+  -- Complete the goal with 'journey_steps_close'
+  convert journey_steps_close A (i - 1) iplt
+  exact (Nat.sub_one_add_one inz).symm
