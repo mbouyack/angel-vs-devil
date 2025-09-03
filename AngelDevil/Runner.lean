@@ -767,6 +767,98 @@ lemma make_run_sprint_mem_journey_cell_close (D : Devil) (p n : Nat) (ppos : 0 <
   · convert hmem
     exact Nat.sub_one_add_one inz
 
+-- The 'make_run' journey is "allowed" if the devil is "nice".
+-- That is, it never visits an eaten cell.
+-- TODO: Can we simplify this proof at all? It's rather lengthy.
+lemma make_run_journey_allowed_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (hnice : nice D p) :
+  allowed D (make_run D p n ppos).A := by
+  let MR := make_run D p n ppos
+  change allowed D MR.A
+  unfold allowed
+  intro i j ilt jlt
+  -- Introduce some helpful inequalities
+  have jlt' : j < n + 1 := by
+    rwa [make_run_journey_steps] at jlt
+  have ilt' : i < n :=
+    lt_of_lt_of_le ilt (Nat.le_of_lt_add_one jlt')
+  have npos : 0 < n := Nat.zero_lt_of_lt ilt'
+  have nnez : n ≠ 0 := Nat.ne_zero_of_lt npos
+  -- Re-write the left-hand side using the journey recurrence
+  have lhs_rw : subjourney MR.A i (lt_trans ilt jlt) =
+    subjourney (make_run D p (n - 1) ppos).A i (by
+      rwa [make_run_journey_steps, Nat.sub_one_add_one]
+      exact Nat.ne_zero_of_lt ilt'
+    ) := by
+    rw [subjourney_congr_journey (make_run_journey_recurrence D p n ppos npos)]
+    rw [append_subjourney]
+  rw [lhs_rw]
+  -- If j ≠ n we can recurse, so handle that case first
+  by_cases hjnn : n ≠ j
+  · -- Now apply the journey recurrence on the right and recurse
+    rw [cell_congr_journey (make_run_journey_recurrence D p n ppos npos)]
+    rw [append_cell_ne_last]; swap
+    · rw [make_run_journey_steps, Nat.sub_one_add_one nnez]
+      exact lt_of_le_of_ne (Nat.le_of_lt_add_one jlt') hjnn.symm
+    apply make_run_journey_allowed_of_nice
+    · exact hnice
+    · exact ilt
+  rename' hjnn => hjn; push_neg at hjn
+  subst hjn
+  -- Now we can also use recursion and the fact that the devil is nice
+  -- to prove that the second-to-last cell in the journey is not in
+  -- the eaten list.
+  let MR' := (make_run D p (n - 1) ppos)
+  let rs₀ := final_state MR'
+  have : loc rs₀ ∉ MR'.eaten := by
+    intro h
+    rcases List.getElem_of_mem h with ⟨k, klt, h⟩
+    rw [make_run_eaten_length] at klt
+    rw [make_run_eaten] at h; swap
+    · assumption
+    rw [← make_run_subjourney D p k (n - 1) ppos] at h; swap
+    · assumption
+    unfold rs₀ at h
+    rw [final_state_loc_eq_journey_last, last] at h
+    rw [cell_congr_idx MR'.A (make_run_journey_steps D p (n - 1) ppos)] at h
+    -- Show that k < n - 1 or else D is not "nice" - a contradiction
+    have klt' : k < n - 1 := by
+      apply lt_of_le_of_ne (Nat.le_of_lt_add_one klt)
+      contrapose! hnice
+      subst hnice
+      apply not_nice_of_eats_journey_cell
+      use MR'.A, (n - 1), (n - 1), le_rfl, (by
+        rw [make_run_journey_steps, Nat.sub_one_add_one nnez]
+        exact Nat.sub_one_lt nnez
+      )
+    -- Now recurse
+    apply make_run_journey_allowed_of_nice D p (n - 1) ppos hnice _ _ klt' _ h
+  -- Rewrite the left-hand_side as an element of the 'eaten' list
+  rw [make_run_subjourney, ← make_run_eaten D p n]
+  -- Resolve bounds checks first
+  pick_goal 2; pick_goal 3
+  · rwa [Nat.sub_one_add_one nnez]
+  · exact lt_trans ilt (Nat.lt_add_one _)
+  -- Re-write the right-hand side so that we can apply 'sprint_avoids_eaten'
+  have nplt : n - 1 < n := Nat.sub_lt npos (by norm_num)
+  have nplt' : n - 1 < MR.sprints.length := by rwa [make_run_sprints_length]
+  have rhs_rw : cell MR.A n jlt =
+    loc (((make_run D p n ppos).sprints[n - 1]'nplt').getLast
+      (MR.nonnil _ (List.getElem_mem _))) := by
+    rw [cell_congr_idx _ (Nat.sub_one_add_one nnez).symm]
+    exact make_run_journey_cell D p n ppos (n - 1) nplt
+  rw [rhs_rw]
+  -- Apply the eaten recurrence
+  rw [getElem_congr_coll (make_run_eaten_recurrence D p n ppos npos)]
+  rw [List.getElem_append_left]; swap
+  · -- Resolve bounds check
+    rwa [make_run_eaten_length, Nat.sub_one_add_one nnez]
+  by_contra! h
+  -- Finally, apply 'sprint_avoids_eaten' which states that a sprint never
+  -- visits a cell from the eaten list used to create it.
+  apply sprint_avoids_eaten p rs₀ MR'.eaten this _ _ (List.mem_of_getElem h)
+  rw [List.getLast_congr _ (next_sprint_nonnil _) (make_run_sprint D p n ppos (n - 1) nplt)]
+  exact List.getLast_mem (next_sprint_nonnil _)
+
 /- Construct the list of run states corresponding to the full route of the runner.
    Each sprint overlaps by one cell, so we need to remove the first state from all
    but the first sprint -/
