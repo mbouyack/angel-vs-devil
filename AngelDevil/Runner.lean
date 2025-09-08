@@ -264,19 +264,6 @@ lemma sprint_avoids_eaten (p : Nat) (rs₀ : RunState)
   fun x smem emem ↦
   sprint_partial_avoids_eaten p 0 (loc rs₀) eaten rs₀ hsafe x smem emem
 
--- TODO: This might be useful more generally
--- Maybe put this in 'Basic'?
-/- A journey of zero steps.
-   This will be used as the base case for constructing the Runner.
--/
-def NoSteps (p : Nat) : Journey p where
-  n := 0
-  seq := fun _ ↦ (0, 0)
-  start := rfl
-  plimit := fun i ilt ↦ False.elim (Nat.not_lt_zero i ilt)
-
-lemma nosteps_steps (p : Nat) : steps (NoSteps p) = 0 := rfl
-
 /- The three different structures needed to define the runner's journey
    have interdependencies that make them difficult to construct separately.
    This structure will allow us to build all three together. -/

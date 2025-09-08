@@ -127,3 +127,25 @@ lemma journey_ext_iff {p : Nat} (A B : Journey p) :
       apply (Fin.heq_fun_iff (Nat.add_one_inj.mpr hs)).mpr
       intro i
       exact h i.1 i.2
+
+-- For some proofs its useful to have a name for the journey of no steps
+def NoSteps (p : Nat) : Journey p where
+  n := 0
+  seq := fun _ ↦ (0, 0)
+  start := rfl
+  plimit := fun i ilt ↦ False.elim (Nat.not_lt_zero i ilt)
+
+-- The journey 'NoSteps' has zero steps
+lemma nosteps_steps (p : Nat) : steps (NoSteps p) = 0 := rfl
+
+-- Every journey of zero steps is equal
+lemma nosteps_of_steps_zero {p : Nat} (A : Journey p) (hsz : steps A = 0) :
+  A = NoSteps p := by
+  apply (journey_ext_iff A (NoSteps p)).mpr
+  push_neg
+  use (by rwa [nosteps_steps p])
+  intro i ilt
+  have iz : i = 0 :=
+    Nat.le_zero.mp (hsz ▸ Nat.le_of_lt_add_one ilt)
+  subst iz
+  rw [journey_start, journey_start]
