@@ -128,7 +128,7 @@ lemma journey_ext_iff {p : Nat} (A B : Journey p) :
       intro i
       exact h i.1 i.2
 
--- For some proofs its useful to have a name for the journey of no steps
+-- For some proofs it is useful to have a name for the journey of no steps
 def NoSteps (p : Nat) : Journey p where
   n := 0
   seq := fun _ ↦ (0, 0)
