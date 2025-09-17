@@ -4,6 +4,8 @@ import AngelDevil.Defs
 import AngelDevil.Basic
 import AngelDevil.Append
 import AngelDevil.Nice
+import AngelDevil.Sprint
+import AngelDevil.Bound
 
 set_option linter.style.longLine false
 
@@ -12,25 +14,6 @@ set_option linter.style.longLine false
    time they are blocked by a cell the Devil has eaten.
 -/
 
-@[ext] structure RunState where
-  x : Int -- Current location, x-coord
-  y : Int -- Current location, y-coord
-  u : Int -- Direction of travel, x-coord
-  v : Int -- Direction of travel, y-coord
-  unit : u * u + v * v = 1 -- ⟨u, v⟩ should be a unit vector
-
--- Prove that we can determine whether two 'RunState' are equal
-instance : DecidableEq RunState := fun a b ↦
-  if h : a.x = b.x ∧ a.y = b.y ∧ a.u = b.u ∧ a.v = b.v then
-    isTrue (RunState.ext_iff.mpr h)
-  else
-    isFalse (fun h' ↦ h (RunState.ext_iff.mp h'))
-
--- Convenience macros for repackaging the location and direction
--- parameters as Int × Int
-def loc (rs : RunState) : Int × Int := ⟨rs.x, rs.y⟩
-def dir (rs : RunState) : Int × Int := ⟨rs.u, rs.v⟩
-
 -- The runner begins at the origin, running northward (up the positive y-axis)
 def run_start : RunState where
   x := 0
@@ -38,231 +21,6 @@ def run_start : RunState where
   u := 0
   v := 1
   unit := by simp
-
-/- Move forward one cell, turn left, and move forward one cell again.
-   Note that for the purposes of counting traversed walls, this counts
-   as a single step, not two. -/
-def turn_left (rs : RunState) : RunState where
-  x := rs.x + rs.u - rs.v
-  y := rs.y + rs.u + rs.v
-  u := -rs.v
-  v := rs.u
-  unit := by
-    rw [Int.neg_mul_neg, Int.add_comm]
-    exact rs.unit
-
--- Move forward one cell
-def move_forward (rs : RunState) : RunState where
-  x := rs.x + rs.u
-  y := rs.y + rs.v
-  u := rs.u
-  v := rs.v
-  unit := rs.unit
-
--- Without changing cells, turn 90-degrees to the right
-def turn_right (rs : RunState) : RunState where
-  x := rs.x
-  y := rs.y
-  u := rs.v
-  v := -rs.u
-  unit := by
-    rw [Int.neg_mul_neg, Int.add_comm]
-    exact rs.unit
-
--- Turning right doesn't change the location, only the direction
-lemma turn_right_loc (rs : RunState) : loc (turn_right rs) = loc rs := rfl
-
-abbrev blocked (eaten : List (Int × Int)) (x : Int × Int) :=
-  x.1 < 0 ∨ x ∈ eaten
-
-/- Determine where the next step of the run would take us.
-   That is, try each of the actions listed above (turn left, move forward,
-   and turn right) and pick the first which lands on an unblocked cell
--/
-def next_step (eaten : List (Int × Int)) (rs : RunState) : RunState :=
-  if ¬blocked eaten (loc (turn_left rs)) then turn_left rs else
-  if ¬blocked eaten (loc (move_forward rs)) then move_forward rs else
-  turn_right rs
-
-/- Attempts to add 'rs' to the current partial sprint.
-   If it succeeds, repeat with the cell indicated by 'next_step'.
--/
-def sprint_partial (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) : List RunState :=
-  if hterm : 2 * p < ns ∨ ¬close p start (loc rs) then [] else
-  rs :: (sprint_partial p (ns + 1) start eaten (next_step eaten rs))
-termination_by 2 * p + 1 - ns
-decreasing_by
-  push_neg at hterm
-  rw [add_comm ns, Nat.sub_add_eq, Nat.add_one_sub_one, Nat.sub_add_comm hterm.1]
-  exact Nat.lt_add_one_of_le (le_refl _)
-
--- If the list constructed by 'sprint_partial' is not empty, the first element of the list will be 'rs'
-lemma sprint_partial_getElem_zero_of_nonnil (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
-  (hnnil : sprint_partial p ns start eaten rs ≠ []) →
-  (sprint_partial p ns start eaten rs)[0]'(List.length_pos_iff.mpr hnnil) = rs := by
-  intro hnnil
-  -- Use the trick of starting with 'sprint_partial = sprint_partial' followed by 'nth_rw'
-  -- to expand only the right-hand side. This allows us to easily do
-  -- the necessary rewrites without having to worry about 'getElem_congr_coll'
-  have : sprint_partial p ns start eaten rs = _ := rfl
-  nth_rw 2 [sprint_partial] at this
-  by_cases hterm : ns > 2 * p ∨ ¬close p start (loc rs)
-  · -- If we hit the termination case this leads to a contradiction
-    rw [dif_pos hterm] at this
-    exact False.elim (hnnil this)
-  rw [dif_neg hterm] at this
-  rw [getElem_congr_coll this, List.getElem_cons_zero]
-
--- If the list constructed by 'sprint_partial' is not empty, ns < 2 * p + 1
-lemma sprint_partial_nslt_of_nonnil (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
-  (hnnil : sprint_partial p ns start eaten rs ≠ []) → ns < 2 * p + 1 := by
-  intro hnnil
-  apply Nat.lt_add_one_of_le
-  contrapose! hnnil
-  rename' hnnil => ltns
-  unfold sprint_partial
-  rw [dif_pos (Or.inl ltns)]
-
--- If the list constructed by 'sprint_partial' is not empty, then the first element is close to 'start'
-lemma sprint_partial_close_getElem_zero_of_nonnil (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
-  (hnnil : sprint_partial p ns start eaten rs ≠ []) →
-  close p start (loc ((sprint_partial p ns start eaten rs)[0]'(List.length_pos_iff.mpr hnnil))) := by
-  intro hnnil
-  rw [sprint_partial_getElem_zero_of_nonnil]
-  · contrapose! hnnil
-    rename' hnnil => hnclose
-    unfold sprint_partial
-    rw [dif_pos (Or.inr hnclose)]
-  · assumption
-
--- If the list constructed by 'sprint_partial' is not empty, rewrite it in 'cons' form.
-lemma sprint_partial_cons_of_nonnil (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
-  (hnnil : sprint_partial p ns start eaten rs ≠ []) →
-  sprint_partial p ns start eaten rs = (rs :: (sprint_partial p (ns + 1) start eaten (next_step eaten rs))) := by
-  intro hnnil
-  nth_rw 1 [sprint_partial]
-  split_ifs with hterm
-  · apply hnnil
-    unfold sprint_partial
-    rw [dif_pos hterm]
-  · rfl
-
--- Any element of a partial sprint is close to the start of the sprint
-lemma sprint_partial_mem_close (p ns : Nat) (start : Int × Int) (eaten : List (Int × Int)) (rs : RunState) :
-  ∀ x ∈ sprint_partial p ns start eaten rs, close p start (loc x) := by
-  intro x hxmem
-  rcases List.getElem_of_mem hxmem with ⟨i, ilt, helem⟩
-  by_cases iz : i = 0
-  · -- We've already proven that if 'sprint_partial ≠ []', sprint_partial[0] is "close"
-    subst iz
-    subst helem
-    apply sprint_partial_close_getElem_zero_of_nonnil
-    exact List.ne_nil_of_mem hxmem
-  · rename' iz => inz; push_neg at inz
-    -- Otherwise, rewrite the list in 'cons' form and use recursion to close the goal
-    rw [getElem_congr_coll (sprint_partial_cons_of_nonnil p ns start eaten rs (List.ne_nil_of_mem hxmem))] at helem
-    rw [getElem_congr_idx ((Nat.sub_one_add_one inz).symm), List.getElem_cons_succ] at helem
-    exact sprint_partial_mem_close _ _ _ _ _ x (List.mem_of_getElem helem)
-termination_by (2 * p + 1 - ns)
-decreasing_by
-  have hnnil : sprint_partial p ns start eaten rs ≠ [] :=
-    List.ne_nil_of_length_pos (lt_of_le_of_lt (Nat.zero_le _) ilt)
-  have nsle : ns ≤ 2 * p := by
-    apply Nat.le_of_lt_add_one
-    apply sprint_partial_nslt_of_nonnil
-    exact hnnil
-  rw [add_comm ns, Nat.sub_add_eq, Nat.add_one_sub_one, Nat.sub_add_comm nsle]
-  exact Nat.lt_add_one_of_le (le_refl _)
-
--- Prove that a partial sprint never steps on an eaten cell
-lemma sprint_partial_avoids_eaten (p ns : Nat) (start : Int × Int)
-  (eaten : List (Int × Int)) (rs : RunState) (hsafe : loc rs ∉ eaten) :
-  ∀ x ∈ sprint_partial p ns start eaten rs, loc x ∉ eaten := by
-  intro x hmem₀ hmem₁
-  unfold sprint_partial at hmem₀
-  split_ifs at hmem₀ with h₀
-  · exact (List.mem_nil_iff _).mp hmem₀
-  push_neg at h₀
-  rcases List.mem_cons.mp hmem₀ with lhs | rhs
-  · subst lhs; contradiction
-  -- This next part is the most technical:
-  -- We have to go through each of the advancement cases and
-  -- show that we never step on an eaten cell
-  have hsafe' : loc (next_step eaten rs) ∉ eaten := by
-    intro hmem₂
-    unfold next_step at hmem₂
-    split_ifs at hmem₂ with h₁ h₂
-    · rw [turn_right_loc] at hmem₂
-      contradiction
-    · unfold blocked at h₂
-      push_neg at h₂
-      exact h₂.2 hmem₂
-    · unfold blocked at h₁
-      push_neg at h₁
-      exact h₁.2 hmem₂
-  exact sprint_partial_avoids_eaten p (ns + 1) start eaten (next_step eaten rs) hsafe' x rhs hmem₁
-termination_by 2 * p + 1 - ns
-decreasing_by
-  rw [Nat.sub_add_eq]
-  apply Nat.sub_one_lt (Nat.sub_ne_zero_of_lt (Nat.lt_add_one_of_le _))
-  push_neg at h₀
-  exact h₀.1
-
--- A sprint is a sequence of steps taken by the runner between moves by the devil.
--- Later we will show that the cells corresponding to the beginning and end of
--- the sprints can be used to construct an angel which escapes the Nice Devil.
-def sprint (p : Nat) (rs₀ : RunState) (eaten : List (Int × Int)) : List RunState :=
-  sprint_partial p 0 (loc rs₀) eaten rs₀
-
--- If 'p' is positive, the sprint will not be empty
--- Up to this point we have not needed this assumption, but it appears
--- to be necessary if we wish to match the logic of the original paper.
-lemma sprint_nonnil_of_ppos (p : Nat) (rs₀ : RunState) (eaten : List (Int × Int)) :
-  0 < p → sprint p rs₀ eaten ≠ [] := by
-  intro hpos
-  unfold sprint sprint_partial
-  split_ifs with hterm
-  · contrapose! hterm
-    constructor
-    · linarith
-    · exact close_self p (loc rs₀)
-  exact List.cons_ne_nil _ _
-
-lemma sprint_getElem_zero_of_ppos (p : Nat) (rs₀ : RunState) (eaten : List (Int × Int)) :
-  (ppos : 0 < p) → (sprint p rs₀ eaten)[0]'(by
-    apply List.length_pos_of_ne_nil
-    exact sprint_nonnil_of_ppos p rs₀ eaten ppos
-  ) = rs₀ :=
-  fun ppos ↦ sprint_partial_getElem_zero_of_nonnil p 0 (loc rs₀) eaten rs₀
-    (sprint_nonnil_of_ppos p rs₀ eaten ppos)
-
--- All run states in a sprint are close to the start of that sprint
-lemma sprint_close_mem_head (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten : List (Int × Int)) :
-  ∀ x ∈ (sprint p rs₀ eaten), close p (loc x)
-  (loc ((sprint p rs₀ eaten).head (sprint_nonnil_of_ppos p rs₀ eaten hpos))) := by
-  intro x xmem
-  have hnnil := sprint_nonnil_of_ppos p rs₀ eaten hpos
-  unfold sprint at *
-  rw [close_comm]
-  convert sprint_partial_mem_close p 0 (loc rs₀) eaten rs₀ x xmem
-  rwa [List.head_eq_getElem_zero hnnil, sprint_partial_getElem_zero_of_nonnil]
-
--- Prove that the first and last cells in a sprint are "close"
-lemma sprint_close_first_last (p : Nat) (hpos : 0 < p) (rs₀ : RunState) (eaten : List (Int × Int)) :
-  close p
-  (loc ((sprint p rs₀ eaten).head (sprint_nonnil_of_ppos p rs₀ eaten hpos)))
-  (loc ((sprint p rs₀ eaten).getLast (sprint_nonnil_of_ppos p rs₀ eaten hpos))) := by
-  have hnnil := sprint_nonnil_of_ppos p rs₀ eaten hpos
-  rw [close_comm]
-  exact sprint_close_mem_head p hpos rs₀ eaten _ (List.getLast_mem hnnil)
-
--- The runner never visits an eaten cell
--- (as long as they don't start on an eaten cell)
-lemma sprint_avoids_eaten (p : Nat) (rs₀ : RunState)
-  (eaten : List (Int × Int)) (hsafe : loc rs₀ ∉ eaten) :
-  ∀ x, x ∈ (sprint p rs₀ eaten) → loc x ∉ eaten :=
-  fun x smem emem ↦
-  sprint_partial_avoids_eaten p 0 (loc rs₀) eaten rs₀ hsafe x smem emem
 
 /- The three different structures needed to define the runner's journey
    have interdependencies that make them difficult to construct separately.
@@ -297,6 +55,13 @@ lemma final_state_of_sprints_nil {p : Nat} (S : RunBuilder p) (hnil : S.sprints 
   unfold final_state
   rw [dif_pos (List.length_eq_zero_iff.mpr hnil)]
 
+-- If 'sprints' is nonnil, the final state is an element in the final sprint
+lemma final_state_getLast_mem_of_nonnil {p : Nat} (S : RunBuilder p) (hnil : S.sprints ≠ []) :
+  final_state S ∈ S.sprints.getLast hnil := by
+  unfold final_state
+  rw [dif_neg (Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnil))]
+  apply List.getLast_mem
+
 -- The location given by 'final_state' matches the last cell in the builder journey
 lemma final_state_loc_eq_journey_last {p : Nat} (S : RunBuilder p) :
   loc (final_state S) = last S.A := by
@@ -306,9 +71,33 @@ lemma final_state_loc_eq_journey_last {p : Nat} (S : RunBuilder p) :
   · push_neg at hlz
     exact S.dest (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))
 
+-- List of cells necessary to prevent the runner from ever moving west of the y-axis
+def west_wall (p n : Nat) :=
+  List.map (fun i : Nat ↦ (-1, (i : Int))) (List.range (p * n + 1))
+
+-- Any cell which is an elment of the west wall has x-coordinate -1
+lemma west_wall_xcoord_of_mem (p n : Nat) :
+  ∀ l ∈ west_wall p n, l.1 = -1 := by
+  unfold west_wall
+  intro l lmem
+  rcases List.getElem_of_mem lmem with ⟨i, ilt, hi⟩
+  rw [List.getElem_map] at hi
+  rw [← hi]
+
+-- Prove the conditions for a cell to be an element of the west wall
+lemma west_wall_mem (p n : Nat) :
+  ∀ i (_ : i ≤ p * n), (-1, Int.ofNat i) ∈ west_wall p n := by
+  intro i ile
+  unfold west_wall
+  apply List.mem_iff_getElem.mpr
+  use i, (by rw [List.length_map, List.length_range]; exact Nat.lt_add_one_of_le ile)
+  rw [List.getElem_map, List.getElem_range]; rfl
+
 -- Get the next sprint to be added to the builder
+-- Note that for the purposes of finding the next sprint, a wall of cells
+-- is added along the y-axis that prevent the runner from ever moving that direction.
 def next_sprint {p : Nat} (S : RunBuilder p) : List RunState :=
-  sprint p (final_state S) S.eaten
+  sprint p (final_state S) (List.union S.eaten (west_wall p S.eaten.length))
 
 lemma next_sprint_nonnil {p : Nat} (S : RunBuilder p) :
   next_sprint S ≠ [] := by
@@ -320,7 +109,7 @@ lemma next_sprint_nonnil {p : Nat} (S : RunBuilder p) :
 lemma next_sprint_first_eq_builder_last {p : Nat} (S : RunBuilder p) :
   final_state S = (next_sprint S)[0]'(by
     apply List.length_pos_of_ne_nil
-    exact sprint_nonnil_of_ppos p (final_state S) S.eaten S.ppos
+    exact sprint_nonnil_of_ppos p (final_state S) _ S.ppos
   ) := by
   unfold next_sprint
   rw [sprint_getElem_zero_of_ppos]
@@ -383,7 +172,7 @@ lemma list_singleton_ne_nil {α : Type} (x : α) : [x] ≠ [] := by
   norm_num
 
 /- Add another sprint to a 'RunBuilder'
-   Original this was named 'make_run' and used recursion to
+   Originally this was named 'make_run' and used recursion to
    directly construct the RunBuilder (rather than taking 'S' as an argument).
    Unfortunately this caused timeouts, so now 'make_run' handles the recursion
    separately and wraps 'extend_run' -/
@@ -754,9 +543,123 @@ lemma make_run_sprint_mem_journey_cell_close (D : Devil) (p n : Nat) (ppos : 0 <
   · convert hmem
     exact Nat.sub_one_add_one inz
 
--- The 'make_run' journey is "allowed" if the devil is "nice".
--- That is, it never visits an eaten cell.
--- TODO: Can we simplify this proof at all? It's rather lengthy.
+-- List of blocked cells used to generate 'next_sprint (make_run D p n ppos)'
+def make_block_list (D : Devil) (p n : Nat) (ppos : 0 < p) : List (Int × Int) :=
+  List.union (make_run D p n ppos).eaten (west_wall p (make_run D p n ppos).eaten.length)
+
+-- Expand the 'next_sprint' of a 'make_run' using 'make_block_list'
+lemma next_sprint_make_run_def (D : Devil) (p n : Nat) (ppos : 0 < p) :
+  next_sprint (make_run D p n ppos) =
+  sprint p (final_state (make_run D p n ppos)) (make_block_list D p n ppos) := rfl
+
+/- Note that it *is* possible to force the runner to remain on a blocked cell
+   if the devil is not nice. Technically, even with a devil that isn't nice,
+   the runner can never be forced onto a 'wall' cell (cells with x = -1, 0 ≤ y)
+   but that proof is more difficult and we're only concerned with nice devils
+   for this section of the proof so we can make our work easier by assuming such. -/
+lemma make_run_next_sprint_avoids_blocked_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (hnice : nice D p) :
+  ∀ rs ∈ next_sprint (make_run D p n ppos), (loc rs) ∉ make_block_list D p n ppos := by
+  intro rs rsmem lrsmem
+  -- First handle the case where n = 0
+  -- This mostly involves showing that the origin will never be on the block list
+  by_cases nz : n = 0
+  · subst nz
+    apply sprint_avoids_blocked p _ (make_block_list D p 0 ppos) _ rs rsmem lrsmem
+    rw [make_run_eq_empty_of_length_zero]
+    rw [final_state_of_sprints_nil _ (empty_builder_sprints D p ppos)]
+    unfold run_start loc; dsimp
+    intro omem
+    -- We have two cases depending on whether rs is an eaten cell or wall cell
+    rcases List.mem_union_iff.mp omem with lhs | rhs
+    · -- The nice devil never eats the origin, so we can show a contradiction
+      rw [make_run_eq_empty_of_length_zero, empty_builder_eaten] at lhs
+      apply not_nice_of_eats_origin D p _ hnice
+      use NoSteps p, 0, (by rw [nosteps_steps p]; norm_num)
+      rw [List.mem_singleton.mp lhs]
+      rfl
+    · -- If rs is a wall cell, this leads to a contradiction because the
+      -- x-coordinates don't match
+      --rw [make_run_eaten_length, zero_add] at rhs
+      have := west_wall_xcoord_of_mem p _ (0, 0) rhs
+      dsimp at this
+      linarith
+  rename' nz => nnz; push_neg at nnz
+  have hsnnil : (make_run D p n ppos).sprints ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [make_run_sprints_length]
+    exact Nat.pos_of_ne_zero nnz
+  rw [next_sprint_make_run_def] at rsmem
+  -- Use recursion to show that the run has thus far avoided blocked cells
+  -- This will be required in order to use 'sprint_avoids_blocked'
+  have hsafe : loc (final_state (make_run D p n ppos)) ∉ make_block_list D p (n - 1) ppos := by
+    apply make_run_next_sprint_avoids_blocked_of_nice
+    · assumption
+    convert final_state_getLast_mem_of_nonnil (make_run D p n ppos) hsnnil
+    rw [List.getLast_congr _ _ (make_run_sprints_recurrence D p n ppos (Nat.pos_of_ne_zero nnz))]; swap
+    · apply List.append_ne_nil_of_right_ne_nil
+      exact list_singleton_ne_nil _
+    rw [List.getLast_append_right (list_singleton_ne_nil _)]
+    exact (List.getLast_singleton (list_singleton_ne_nil _)).symm
+  -- Strengthen the statement of 'hsafe' by including the devil's last response and
+  -- an extra 'p' cells in the west wall. This section constitutes the majority of the proof.
+  have hsafe' : loc (final_state (make_run D p n ppos)) ∉ make_block_list D p n ppos := by
+    intro lfsmem
+    rcases List.mem_union_iff.mp lfsmem with lhs | rhs
+    · -- Handle the case where the final state is on the 'eaten' list
+      rcases List.getElem_of_mem lhs with ⟨i, ilt, hi⟩
+      rw [make_run_eaten_length] at ilt
+      rw [getElem_congr_coll (make_run_eaten_recurrence D p n ppos (Nat.pos_of_ne_zero nnz))] at hi
+      -- Handle the case where the final state was eaten last
+      by_cases hin : i = n
+      · rw [List.getElem_append_right] at hi; swap
+        · rw [make_run_eaten_length, hin, Nat.sub_one_add_one nnz]
+        -- Prove a bound needed for 'getElem_singleton'
+        have lt1 : i - (make_run D p (n - 1) ppos).eaten.length < 1 := by
+          rw [make_run_eaten_length, Nat.sub_one_add_one nnz, hin, Nat.sub_self]
+          norm_num
+        rw [List.getElem_singleton lt1, final_state_loc_eq_journey_last] at hi
+        -- We will show that a journey cell is eaten, which is contradiction with 'hnice'
+        apply not_nice_of_eats_journey_cell D p _ hnice
+        use (make_run D p n ppos).A, n, n, le_refl n
+        use (by rw [make_run_journey_steps]; exact Nat.lt_add_one _)
+        have hsj := subjourney_full (make_run D p n ppos).A
+        rw [subjourney_congr_idx _ (make_run_journey_steps D p n ppos)] at hsj
+        rw [hsj]
+        convert hi
+        rw [last]
+        congr
+        rw [make_run_journey_steps]
+      · rename' hin => inen; push_neg at inen
+        -- If i ≠ n, we will show that the final state was on the old eaten list - a contradiction
+        apply hsafe
+        apply List.mem_union_iff.mpr; left
+        have ilt' : i < (make_run D p (n - 1) ppos).eaten.length := by
+          rw [make_run_eaten_length, Nat.sub_one_add_one nnz]
+          exact lt_of_le_of_ne (Nat.le_of_lt_add_one ilt) inen
+        rw [List.getElem_append_left ilt'] at hi
+        exact List.mem_of_getElem hi
+    · -- Now handle the case where the final state is a wall cell
+      unfold west_wall at rhs
+      rcases List.getElem_of_mem rhs with ⟨i, ilt, hi⟩
+      rw [List.length_map, List.length_range, make_run_eaten_length] at ilt
+      rw [List.getElem_map, final_state_loc_eq_journey_last] at hi
+      -- Handle the case where 'i' is so large, it exceeds the bound proven in Bound.lean
+      by_cases pni : p * n < i
+      · apply (lt_self_iff_false n).mp
+        nth_rw 2 [← make_run_journey_steps D p n ppos]
+        apply journey_lb _ _ (lt_of_lt_of_le pni (le_trans _ (le_max_right _ _)))
+        simp
+        rw [← (Prod.ext_iff.mp hi).2, List.getElem_range]
+        exact (le_refl i)
+      rename' pni => ilepn; push_neg at ilepn
+      · -- If i ≤ p * n, show that the final state was in the old west wall
+        apply hsafe (List.mem_union_iff.mpr _); right
+        rw [List.getElem_range] at hi
+        rw [final_state_loc_eq_journey_last, ← hi]
+        apply west_wall_mem
+        rwa [make_run_eaten_length, Nat.sub_one_add_one nnz]
+  exact sprint_avoids_blocked p _ _ hsafe' rs rsmem lrsmem
+
 lemma make_run_journey_allowed_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (hnice : nice D p) :
   allowed D (make_run D p n ppos).A := by
   let MR := make_run D p n ppos
@@ -778,11 +681,10 @@ lemma make_run_journey_allowed_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (h
     ) := by
     rw [subjourney_congr_journey (make_run_journey_recurrence D p n ppos npos)]
     rw [append_subjourney]
-  rw [lhs_rw]
   -- If j ≠ n we can recurse, so handle that case first
   by_cases hjnn : n ≠ j
   · -- Now apply the journey recurrence on the right and recurse
-    rw [cell_congr_journey (make_run_journey_recurrence D p n ppos npos)]
+    rw [lhs_rw, cell_congr_journey (make_run_journey_recurrence D p n ppos npos)]
     rw [append_cell_ne_last]; swap
     · rw [make_run_journey_steps, Nat.sub_one_add_one nnez]
       exact lt_of_le_of_ne (Nat.le_of_lt_add_one jlt') hjnn.symm
@@ -791,60 +693,42 @@ lemma make_run_journey_allowed_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (h
     · exact ilt
   rename' hjnn => hjn; push_neg at hjn
   subst hjn
-  -- Now we can also use recursion and the fact that the devil is nice
-  -- to prove that the second-to-last cell in the journey is not in
-  -- the eaten list.
-  let MR' := (make_run D p (n - 1) ppos)
-  let rs₀ := final_state MR'
-  have : loc rs₀ ∉ MR'.eaten := by
-    intro h
-    rcases List.getElem_of_mem h with ⟨k, klt, h⟩
-    rw [make_run_eaten_length] at klt
-    rw [make_run_eaten] at h; swap
-    · assumption
-    rw [← make_run_subjourney D p k (n - 1) ppos] at h; swap
-    · assumption
-    unfold rs₀ at h
-    rw [final_state_loc_eq_journey_last, last] at h
-    rw [cell_congr_idx MR'.A (make_run_journey_steps D p (n - 1) ppos)] at h
-    -- Show that k < n - 1 or else D is not "nice" - a contradiction
-    have klt' : k < n - 1 := by
-      apply lt_of_le_of_ne (Nat.le_of_lt_add_one klt)
-      contrapose! hnice
-      subst hnice
-      apply not_nice_of_eats_journey_cell
-      use MR'.A, (n - 1), (n - 1), le_rfl, (by
-        rw [make_run_journey_steps, Nat.sub_one_add_one nnez]
-        exact Nat.sub_one_lt nnez
-      )
-    -- Now recurse
-    apply make_run_journey_allowed_of_nice D p (n - 1) ppos hnice _ _ klt' _ h
-  -- Rewrite the left-hand_side as an element of the 'eaten' list
-  rw [make_run_subjourney, ← make_run_eaten D p n]
-  -- Resolve bounds checks first
-  pick_goal 2; pick_goal 3
-  · rwa [Nat.sub_one_add_one nnez]
-  · exact lt_trans ilt (Nat.lt_add_one _)
-  -- Re-write the right-hand side so that we can apply 'sprint_avoids_eaten'
-  have nplt : n - 1 < n := Nat.sub_lt npos (by norm_num)
-  have nplt' : n - 1 < MR.sprints.length := by rwa [make_run_sprints_length]
-  have rhs_rw : cell MR.A n jlt =
-    loc (((make_run D p n ppos).sprints[n - 1]'nplt').getLast
-      (MR.nonnil _ (List.getElem_mem _))) := by
-    rw [cell_congr_idx _ (Nat.sub_one_add_one nnez).symm]
-    exact make_run_journey_cell D p n ppos (n - 1) nplt
-  rw [rhs_rw]
-  -- Apply the eaten recurrence
-  rw [getElem_congr_coll (make_run_eaten_recurrence D p n ppos npos)]
-  rw [List.getElem_append_left]; swap
-  · -- Resolve bounds check
-    rwa [make_run_eaten_length, Nat.sub_one_add_one nnez]
-  by_contra! h
-  -- Finally, apply 'sprint_avoids_eaten' which states that a sprint never
-  -- visits a cell from the eaten list used to create it.
-  apply sprint_avoids_eaten p rs₀ MR'.eaten this _ _ (List.mem_of_getElem h)
-  rw [List.getLast_congr _ (next_sprint_nonnil _) (make_run_sprint D p n ppos (n - 1) nplt)]
-  exact List.getLast_mem (next_sprint_nonnil _)
+  have last_exp := (final_state_loc_eq_journey_last (make_run D p n ppos)).symm
+  rw [last, ← cell_congr_idx _ (make_run_journey_steps D p n ppos).symm jlt] at last_exp
+  rw [last_exp, make_run_subjourney D p i n ppos (lt_trans ilt (Nat.lt_add_one _))]
+  intro h
+  let fs : RunState := final_state (make_run D p n ppos)
+  have lfsmem : loc fs ∈ (make_run D p (n - 1) ppos).eaten := by
+    apply @List.mem_of_mem_take _ (i + 1)
+    rw [make_run_eaten_take]; swap
+    · rwa [Nat.sub_one_add_one nnez]
+    -- Handle the case where i = 0
+    by_cases iz : i = 0
+    · subst iz
+      rw [make_run_eq_empty_of_length_zero] at *
+      rw [empty_builder_journey] at h
+      rw [empty_builder_eaten, h]
+      exact List.mem_singleton_self _
+    rename' iz => inz; push_neg at inz
+    -- Otherwise, if i ≠ 0 we can use the 'eaten' recurrence
+    rw [make_run_eaten_recurrence]; swap
+    · exact Nat.pos_of_ne_zero inz
+    apply List.mem_append_right
+    rw [h]
+    exact List.mem_singleton_self _
+  apply make_run_next_sprint_avoids_blocked_of_nice D p (n - 1) ppos hnice fs _ _
+  · convert final_state_getLast_mem_of_nonnil (make_run D p n ppos) (by
+      apply List.ne_nil_of_length_pos
+      rwa [make_run_sprints_length]
+    )
+    rw [List.getLast_congr _ _ (make_run_sprints_recurrence D p n ppos npos)]; swap
+    · apply List.ne_nil_of_length_pos
+      rw [List.length_append, List.length_singleton]
+      exact lt_of_le_of_lt (Nat.zero_le _) (Nat.lt_add_one _)
+    rw [List.getLast_append_right]; swap
+    · exact list_singleton_ne_nil _
+    exact (List.getLast_singleton (list_singleton_ne_nil _)).symm
+  · exact List.mem_union_iff.mpr (Or.inl lfsmem)
 
 /- Construct the list of run states corresponding to the full route of the runner.
    Each sprint overlaps by one cell, so we need to remove the first state from all
@@ -1039,33 +923,12 @@ lemma make_run_runner_avoids_eaten_cells_of_nice (D : Devil) (p n : Nat) (ppos :
   rw [lhs_rw]
   rw [getElem_congr_coll (make_run_eaten_take D p i n ppos (lt_trans ilt (Nat.lt_add_one _)))]
   intro h
-  let MR := (make_run D p i ppos)
-  let rs₀ := final_state MR
-  -- TODO: There is a very similar section in 'make_run_journey_allowed_of_nice'
-  -- Can we refactor this into a separate proof somehow?
-  have hsafe : loc rs₀ ∉ MR.eaten := by
-    intro h
-    rcases List.getElem_of_mem h with ⟨l, llt, h⟩
-    rw [make_run_eaten_length] at llt
-    rw [final_state_loc_eq_journey_last, last, make_run_eaten] at h; swap
-    · exact llt
-    rw [← make_run_subjourney D p l i] at h; swap
-    · exact llt
-    rw [cell_congr_idx _ (make_run_journey_steps D p i ppos)] at h
-    -- Handle the case where l = i using 'not_nice_of_eats_journey_cell'
-    by_cases hli : l = i
-    · subst hli
-      absurd hnice
-      apply not_nice_of_eats_journey_cell
-      use MR.A, l, l, le_rfl, (by rwa [make_run_journey_steps])
-    rename' hli => lnei; push_neg at lnei
-    -- Resolve the goal with 'make_run_journey_allowed_of_nice
-    absurd h
-    apply make_run_journey_allowed_of_nice
-    · exact hnice
-    · exact lt_of_le_of_ne (Nat.le_of_lt_add_one llt) lnei
-  -- Use 'sprint_avoids_eaten' with the above sub-result to get a contradiction
-  apply sprint_avoids_eaten p rs₀ MR.eaten hsafe _ (List.getElem_mem _) (List.mem_of_getElem h)
+  rw [make_run_sprint D p n ppos i ilt] at jlt
+  let rs : RunState := (next_sprint (make_run D p i ppos))[j]'jlt
+  apply make_run_next_sprint_avoids_blocked_of_nice D p i ppos hnice rs (List.getElem_mem jlt)
+  apply List.mem_union_iff.mpr; left
+  rw [← h]
+  exact List.getElem_mem (by rw [make_run_eaten_length]; exact Nat.lt_add_one_of_le kle)
 
 -- If the devil is "nice", then no cell visited by the runner was ever eaten by the devil.
 lemma run_path_not_eaten_of_nice (D : Devil) (p n : Nat) (ppos : 0 < p) (hnice : nice D p) :
