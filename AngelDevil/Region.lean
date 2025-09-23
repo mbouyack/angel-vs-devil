@@ -61,7 +61,8 @@ def region_builder_init (L : List (Int × Int)) (_start : (Int × Int)) : Region
     list_nodupes_erase_of_nodupes (list_rm_dupes L) (list_rm_dupes_no_dupes L) _start
   hnodupes := by
     rw [List.nil_append]
-    apply list_nodupes_singleton_append_of_notmem_of_nodupes
+    apply (list_nodupes_singleton_append_iff _ _).mpr
+    constructor
     · apply list_nodupes_not_mem_erase_of_nodupes
       exact list_rm_dupes_no_dupes L
     · apply list_nodupes_erase_of_nodupes
@@ -81,21 +82,20 @@ def region_builder_try_add_cell (RB : RegionBuilder) (c : Int × Int) : RegionBu
     )
     RB.hregion_nd
     (by
-      apply list_nodupes_singleton_append_of_notmem_of_nodupes
-      · exact fun hmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨hmem', hmem⟩
-      · exact RB.hpending_nd
+      apply (list_nodupes_singleton_append_iff _ _).mpr
+      exact ⟨
+        fun hmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨hmem', hmem⟩,
+        RB.hpending_nd⟩
     )
-    (by
-      apply list_nodupes_erase_of_nodupes
-      exact RB.hunvisited_nd
-    )
+    (list_nodupes_erase_of_nodupes _ RB.hunvisited_nd _)
     (by
       by_contra h₀
       rcases list_nodupes_append_dupes_iff.mp h₀ with h₁ | h₁ | h₁
       · rcases list_nodupes_append_dupes_iff.mp h₁ with h₂ | h₂| h₂
         · exact h₂ RB.hregion_nd
         · apply h₂
-          apply list_nodupes_singleton_append_of_notmem_of_nodupes
+          apply (list_nodupes_singleton_append_iff _ _).mpr
+          constructor
           · exact fun hmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨hmem', hmem⟩
           · exact RB.hpending_nd
         · rcases h₂ with ⟨d, meml, memr⟩

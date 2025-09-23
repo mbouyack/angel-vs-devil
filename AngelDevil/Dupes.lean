@@ -30,89 +30,6 @@ lemma list_nodupes_singleton {α : Type} [DecidableEq α] (x : α) : list_nodupe
   have jz : j = 0 := Nat.le_zero.mp (Nat.le_of_lt_add_one jlt)
   exact False.elim (Nat.not_lt_zero _ (jz ▸ ilt))
 
--- Two conclusion that follow from a list 'x::xs' having no duplicates
-lemma list_nodupes_cons {α : Type} [DecidableEq α] (x : α) (xs : List α) (h : list_nodupes (x::xs)) :
-  x ∉ xs ∧ list_nodupes xs := by
-  constructor
-  · intro xmem
-    unfold list_nodupes at h
-    rcases List.getElem_of_mem xmem with ⟨i, ilt, hi⟩
-    have islt : i + 1 < (x :: xs).length := by
-      rw [List.length_cons]
-      exact Nat.add_one_lt_add_one_iff.mpr ilt
-    apply h 0 (i + 1) (Nat.add_one_pos _) islt
-    rw [List.getElem_cons_zero, List.getElem_cons_succ]
-    exact hi.symm
-  · unfold list_nodupes at *
-    contrapose! h
-    rcases h with ⟨i, j, ilt, jlt, h⟩
-    use (i + 1), (j + 1), (Nat.add_one_lt_add_one_iff.mpr ilt), (by
-      rw [List.length_cons]
-      exact Nat.add_one_lt_add_one_iff.mpr jlt
-    )
-    rwa [List.getElem_cons_succ, List.getElem_cons_succ]
-
--- If a list has no duplicates, erasing an element from that list
--- results in a list which also has no duplicates.
--- NOTE: This turns out to be a bit lengthy as we need to rewrite
--- 'erase' as 'eraseIdx' and then complete the proof by cases
--- depending on the relationship between i, j, and k
--- TODO: Do we need all three of the 'Eq' instances listed here?
-lemma list_nodupes_erase_of_nodupes {α : Type} [BEq α] [LawfulBEq α] [DecidableEq α]
-  (L : List α) (hnd : list_nodupes L) (a : α) : list_nodupes (L.erase a) := by
-  intro i j ilt jlt
-  by_cases hmem : a ∉ L
-  · repeat rw [getElem_congr_coll (List.erase_of_not_mem hmem)]
-    rw [List.erase_of_not_mem hmem] at jlt
-    exact hnd i j ilt jlt
-  push_neg at hmem
-  let k := List.idxOf a L
-  have kdef : List.idxOf a L = k := rfl
-  repeat rw [getElem_congr_coll (List.erase_eq_eraseIdx_of_idxOf kdef)]
-  rw [List.length_erase_of_mem hmem] at jlt
-  have klt : k < L.length := List.idxOf_lt_length_of_mem hmem
-  have ilt'' : i < (L.eraseIdx k).length := by
-    rw [List.length_eraseIdx_of_lt klt]
-    exact lt_trans ilt jlt
-  have jlt' : j < (L.eraseIdx k).length := by
-    rw [List.length_eraseIdx_of_lt klt]
-    exact jlt
-  by_cases kle : k ≤ i
-  · rw [List.getElem_eraseIdx_of_ge ilt'' kle]
-    rw [List.getElem_eraseIdx_of_ge jlt' (le_trans kle (le_of_lt ilt))]
-    apply hnd (i + 1) (j + 1) (Nat.add_one_lt_add_one_iff.mpr ilt)
-  rename' kle => ilt'''; push_neg at ilt'''
-  rw [List.getElem_eraseIdx_of_lt ilt'' ilt''']
-  by_cases kle : k ≤ j
-  · rw [List.getElem_eraseIdx_of_ge jlt' kle]
-    apply hnd i (j + 1) (lt_trans ilt (Nat.lt_add_one _))
-  rename' kle => jlt''; push_neg at jlt''
-  rw [List.getElem_eraseIdx_of_lt jlt' jlt'']
-  apply hnd i j ilt
-
--- If a list has no duplicates, then erasing an element will
--- result in a list which does not contain that element.
-lemma list_nodupes_not_mem_erase_of_nodupes {α : Type} [BEq α] [LawfulBEq α] [DecidableEq α]
-  (L : List α) (hnd : list_nodupes L) (a : α) : a ∉ L.erase a := by
-  -- Not that we didn't assume a ∈ L
-  -- Handle the negation of that case now
-  by_cases amem : a ∉ L
-  · exact fun h ↦ amem (List.erase_subset h )
-  push_neg at amem
-  match L with
-  | []    => exact False.elim (List.not_mem_nil amem)
-  | x::xs =>
-    intro h
-    have anx : a ≠ x := by
-      intro ax
-      subst ax
-      rw [List.erase_cons_head] at h
-      exact False.elim ((list_nodupes_cons a xs hnd).1 h)
-    rw [List.erase_cons_tail (fun bneq ↦ anx ((beq_iff_eq.mp bneq).symm))] at h
-    have amem' : a ∈ xs.erase a :=
-      Or.elim (List.mem_cons.mp h) (fun ax ↦ False.elim (anx ax)) id
-    exact list_nodupes_not_mem_erase_of_nodupes xs (list_nodupes_cons x xs hnd).2 a amem'
-
 -- Proves the conditions under which an appended list has dupes
 lemma list_nodupes_append_dupes_iff {α : Type} [DecidableEq α] {L₀ L₁ : List α} :
   ¬list_nodupes (L₀ ++ L₁) ↔
@@ -179,17 +96,91 @@ lemma list_nodupes_append_dupes_iff {α : Type} [DecidableEq α] {L₀ L₁ : Li
       rw [Nat.add_sub_cancel]
 
 -- Appending a single element to the left of a list will result
--- in a list with no duplicates if that element is not in the original
--- list and the original list already has no duplicates.
-lemma list_nodupes_singleton_append_of_notmem_of_nodupes
-  {α : Type} [DecidableEq α] (L : List α) (a : α)
-  (hmem : a ∉ L) (hnd : list_nodupes L) : list_nodupes ([a] ++ L) := by
-  by_contra! h
-  rcases list_nodupes_append_dupes_iff.mp h with h' | h' | h'
-  · exact h' (list_nodupes_singleton a)
-  · exact h' hnd
-  · rcases h' with ⟨b, meml, memr⟩
-    exact hmem ((List.mem_singleton.mp meml) ▸ memr)
+-- in a list with no duplicates if-and-only-if that element is not
+-- in the original list and the original list already has no duplicates.
+lemma list_nodupes_singleton_append_iff
+  {α : Type} [DecidableEq α] (L : List α) (a : α) :
+  list_nodupes ([a] ++ L) ↔ a ∉ L ∧ list_nodupes L := by
+  constructor
+  · intro h
+    contrapose! h
+    apply list_nodupes_append_dupes_iff.mpr
+    by_cases hmem : a ∈ L
+    · exact Or.inr (Or.inr ⟨a, List.mem_singleton_self a, hmem⟩)
+    exact Or.inr (Or.inl (h hmem))
+  · intro ⟨hmem, hnd⟩
+    by_contra! h
+    rcases list_nodupes_append_dupes_iff.mp h with h' | h' | h'
+    · exact h' (list_nodupes_singleton a)
+    · exact h' hnd
+    · rcases h' with ⟨b, meml, memr⟩
+      exact hmem ((List.mem_singleton.mp meml) ▸ memr)
+
+-- Two conclusion that follow from a list 'x::xs' having no duplicates
+lemma list_nodupes_cons_iff {α : Type} [DecidableEq α] (x : α) (xs : List α) :
+  list_nodupes (x::xs) ↔ x ∉ xs ∧ list_nodupes xs :=
+  list_nodupes_singleton_append_iff _ _
+
+-- If a list has no duplicates, erasing an element from that list
+-- results in a list which also has no duplicates.
+-- NOTE: This turns out to be a bit lengthy as we need to rewrite
+-- 'erase' as 'eraseIdx' and then complete the proof by cases
+-- depending on the relationship between i, j, and k
+-- TODO: Do we need all three of the 'Eq' instances listed here?
+lemma list_nodupes_erase_of_nodupes {α : Type} [BEq α] [LawfulBEq α] [DecidableEq α]
+  (L : List α) (hnd : list_nodupes L) (a : α) : list_nodupes (L.erase a) := by
+  intro i j ilt jlt
+  by_cases hmem : a ∉ L
+  · repeat rw [getElem_congr_coll (List.erase_of_not_mem hmem)]
+    rw [List.erase_of_not_mem hmem] at jlt
+    exact hnd i j ilt jlt
+  push_neg at hmem
+  let k := List.idxOf a L
+  have kdef : List.idxOf a L = k := rfl
+  repeat rw [getElem_congr_coll (List.erase_eq_eraseIdx_of_idxOf kdef)]
+  rw [List.length_erase_of_mem hmem] at jlt
+  have klt : k < L.length := List.idxOf_lt_length_of_mem hmem
+  have ilt'' : i < (L.eraseIdx k).length := by
+    rw [List.length_eraseIdx_of_lt klt]
+    exact lt_trans ilt jlt
+  have jlt' : j < (L.eraseIdx k).length := by
+    rw [List.length_eraseIdx_of_lt klt]
+    exact jlt
+  by_cases kle : k ≤ i
+  · rw [List.getElem_eraseIdx_of_ge ilt'' kle]
+    rw [List.getElem_eraseIdx_of_ge jlt' (le_trans kle (le_of_lt ilt))]
+    apply hnd (i + 1) (j + 1) (Nat.add_one_lt_add_one_iff.mpr ilt)
+  rename' kle => ilt'''; push_neg at ilt'''
+  rw [List.getElem_eraseIdx_of_lt ilt'' ilt''']
+  by_cases kle : k ≤ j
+  · rw [List.getElem_eraseIdx_of_ge jlt' kle]
+    apply hnd i (j + 1) (lt_trans ilt (Nat.lt_add_one _))
+  rename' kle => jlt''; push_neg at jlt''
+  rw [List.getElem_eraseIdx_of_lt jlt' jlt'']
+  apply hnd i j ilt
+
+-- If a list has no duplicates, then erasing an element will
+-- result in a list which does not contain that element.
+lemma list_nodupes_not_mem_erase_of_nodupes {α : Type} [BEq α] [LawfulBEq α] [DecidableEq α]
+  (L : List α) (hnd : list_nodupes L) (a : α) : a ∉ L.erase a := by
+  -- Not that we didn't assume a ∈ L
+  -- Handle the negation of that case now
+  by_cases amem : a ∉ L
+  · exact fun h ↦ amem (List.erase_subset h )
+  push_neg at amem
+  match L with
+  | []    => exact False.elim (List.not_mem_nil amem)
+  | x::xs =>
+    intro h
+    have anx : a ≠ x := by
+      intro ax
+      subst ax
+      rw [List.erase_cons_head] at h
+      exact False.elim (((list_nodupes_cons_iff a xs).mp hnd).1 h)
+    rw [List.erase_cons_tail (fun bneq ↦ anx ((beq_iff_eq.mp bneq).symm))] at h
+    have amem' : a ∈ xs.erase a :=
+      Or.elim (List.mem_cons.mp h) (fun ax ↦ False.elim (anx ax)) id
+    exact list_nodupes_not_mem_erase_of_nodupes xs ((list_nodupes_cons_iff x xs).mp hnd).2 a amem'
 
 -- An element of 'list_rm_dupes L' is always an element of L and vice-versa
 lemma list_rm_dupes_mem_iff {α : Type} [DecidableEq α] (L : List α) :
