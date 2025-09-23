@@ -121,6 +121,20 @@ lemma list_nodupes_cons_iff {α : Type} [DecidableEq α] (x : α) (xs : List α)
   list_nodupes (x::xs) ↔ x ∉ xs ∧ list_nodupes xs :=
   list_nodupes_singleton_append_iff _ _
 
+lemma list_nodupes_head_tail_iff {α : Type} [DecidableEq α] (L : List α) (hnnil : L ≠ []) :
+  list_nodupes L ↔ L.head hnnil ∉ L.tail ∧ list_nodupes L.tail := by
+  nth_rw 1 [← List.head_cons_tail L hnnil, list_nodupes_cons_iff (L.head hnnil) L.tail]
+
+-- If a list has no duplicate values, then neither does its tail
+lemma list_nodupes_tail_of_nodupes {α : Type} [DecidableEq α] (L : List α) :
+  list_nodupes L → list_nodupes L.tail := by
+  intro h
+  by_cases hnil : L = []
+  · subst hnil
+    rwa [List.tail_nil]
+  rename' hnil => hnnil; push_neg at hnnil
+  exact ((list_nodupes_head_tail_iff L hnnil).mp h).2
+
 -- If a list has no duplicates, erasing an element from that list
 -- results in a list which also has no duplicates.
 -- NOTE: This turns out to be a bit lengthy as we need to rewrite
@@ -211,7 +225,7 @@ lemma list_rm_dupes_mem_iff {α : Type} [DecidableEq α] (L : List α) :
         · exact List.mem_cons.mpr (Or.inr ((list_rm_dupes_mem_iff xs a).mpr rhs))
 
 -- Prove that 'rm_dupes' does in-fact remove all duplicates
-lemma list_rm_dupes_no_dupes {α : Type} [DecidableEq α] (L : List α) :
+lemma list_rm_dupes_nodupes {α : Type} [DecidableEq α] (L : List α) :
   list_nodupes (list_rm_dupes L) := by
   intro i j ilt jlt
   match L with
@@ -222,7 +236,7 @@ lemma list_rm_dupes_no_dupes {α : Type} [DecidableEq α] (L : List α) :
     unfold list_rm_dupes at *
     split_ifs with h
     · rw [if_pos h] at jlt
-      exact list_rm_dupes_no_dupes xs i j ilt jlt
+      exact list_rm_dupes_nodupes xs i j ilt jlt
     intro h'
     rcases Nat.exists_eq_add_one_of_ne_zero (Nat.ne_zero_of_lt ilt) with ⟨jpred, hjp⟩
     subst hjp
@@ -238,4 +252,4 @@ lemma list_rm_dupes_no_dupes {α : Type} [DecidableEq α] (L : List α) :
     rw [if_neg h, List.length_cons] at jlt
     have ipredlt := Nat.add_one_lt_add_one_iff.mp ilt
     have jpredlt := Nat.add_one_lt_add_one_iff.mp jlt
-    exact list_rm_dupes_no_dupes xs ipred jpred ipredlt jpredlt h'
+    exact list_rm_dupes_nodupes xs ipred jpred ipredlt jpredlt h'
