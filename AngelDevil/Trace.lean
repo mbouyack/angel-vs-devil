@@ -1,6 +1,6 @@
 import Mathlib.Data.Fin.Basic
 import Mathlib.Data.List.Basic
-import AngelDevil.Defs
+import AngelDevil.Basic
 import AngelDevil.Misc
 
 set_option linter.style.longLine false
@@ -212,6 +212,11 @@ def trace (n : Nat) (rs : RunState) (blocked : List (Int × Int)) : List RunStat
   if n = 0 then [] else
   rs :: (trace (n - 1) (next_step blocked rs) blocked)
 
+lemma trace_nil (rs : RunState) (blocked : List (Int × Int)) :
+  trace 0 rs blocked = [] := by
+  unfold trace
+  rfl
+
 -- If the list constructed by 'trace_partial' is not empty, the first element of the list will be 'rs'
 lemma trace_getElem_zero_of_nonnil (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
   (hnnil : trace n rs blocked ≠ []) →
@@ -247,6 +252,44 @@ lemma trace_length (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
     exact h.symm
   push_neg at h
   rw [List.length_cons, trace_length, Nat.sub_one_add_one h]
+
+-- The distance to the end of the trace is less than or equal to 'n - 1'
+-- Note that there is an off-by-one issue at play here:
+-- E.g., a trace of length '1' will have an end at distance '0'
+lemma trace_getLast_close (n : Nat) (npos : 0 < n) (rs : RunState) (blocked : List (Int × Int)) :
+  close (n - 1) (loc rs) (loc ((trace n rs blocked).getLast (by
+    apply List.ne_nil_of_length_pos
+    rwa [trace_length]
+  ))) := by
+  have hnnil : trace n rs blocked ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [trace_length]
+  rw [List.getLast_congr _ _ (trace_cons_of_nonnil _ _ _ hnnil)]; swap
+  · exact List.cons_ne_nil _ _
+  -- Handle the case where n = 1 first
+  by_cases nle : n ≤ 1
+  · have n1 : n = 1 := le_antisymm nle (Nat.add_one_le_of_lt npos)
+    subst n1
+    -- The tail of the cons is nil, but proving it directly is obnoxious
+    -- Instead, prove the remainder of the goal and use convert
+    have : close (1 - 1) (loc rs) (loc ((rs :: []).getLast (by
+      apply List.ne_nil_of_length_pos
+      rw [List.length_singleton]
+      norm_num
+    ))) := by
+      rw [List.getLast_singleton]
+      exact close_self _ _
+    convert this
+    rw [Nat.sub_self 1, trace_nil]
+  rename' nle => ltn; push_neg at ltn
+  -- Apply the triangle inequality
+  let rs' := next_step blocked rs
+  apply le_trans (dist_tri (loc rs) (loc rs') _)
+  apply le_trans (Nat.add_le_add_right (next_step_dist_le_one blocked rs) _)
+  apply Nat.add_le_of_le_sub' (Nat.le_sub_one_of_lt ltn)
+  -- And finally recurse
+  convert trace_getLast_close (n - 1) (Nat.lt_sub_of_add_lt ltn) rs' blocked using 3
+  apply List.getLast_cons
 
 -- Recurrence for getting a particular element of a trace
 lemma trace_getElem_recurrence (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
