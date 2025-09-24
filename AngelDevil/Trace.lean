@@ -358,6 +358,27 @@ lemma trace_take (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
   apply le_trans _ mle
   exact Nat.one_le_iff_ne_zero.mpr mnz
 
+-- Relates an element in one trace to the last element of another
+lemma trace_getElem_getLast (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
+  ∀ i (ilt : i < (trace n rs blocked).length),
+  (trace n rs blocked)[i] = (trace (i + 1) rs blocked).getLast (by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  ) := by
+  intro i ilt
+  have isle : i + 1 ≤ n := by
+    rw [trace_length] at ilt
+    exact Nat.add_one_le_of_lt ilt
+  have htakelen := List.length_take_of_le (Nat.add_one_le_of_lt ilt)
+  rw [List.getLast_congr _ _ (trace_take n rs blocked (i + 1) isle)]; swap
+  · apply List.ne_nil_of_length_pos
+    rw [htakelen]
+    exact Nat.add_one_pos _
+  rw [List.getLast_eq_getElem, List.getElem_take]
+  congr
+  rw [htakelen, Nat.add_one_sub_one]
+
 -- Theorem relating a sub-list of a trace to a trace that
 -- begins with the first element of that sub-list
 -- TODO: Simplify this proof
