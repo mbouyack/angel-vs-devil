@@ -97,6 +97,35 @@ lemma sprint_length_le (p : Nat) (start : RunState) (blocked : List (Int × Int)
   rw [trace_length] at ilt
   apply Nat.ne_zero_of_lt ilt
 
+-- The minimum sprint length is p+1
+lemma sprint_length_lb (p : Nat) (start : RunState) (blocked : List (Int × Int)) (ppos : 0 < p) :
+  p < (sprint p start blocked).length := by
+  unfold sprint
+  -- This hypothesis is easier to work with than the final goal
+  have : ∀ (i : Fin (2 * p - 1 + 1)), i.val ≤ p →
+    ¬sprint_end_fun p start blocked ppos i := by
+    intro i ile
+    unfold sprint_end_fun; push_neg
+    rw [Fin.getElem_fin, trace_getElem_getLast]
+    exact le_trans (trace_getLast_close (i.val + 1) (Nat.add_one_pos _) start blocked) ile
+  split_ifs with h <;> rw [trace_length]
+  · by_contra! ltp
+    apply this _ ltp
+    -- '_find_first_is_sat' completes the goal, but we still need to show
+    -- that there exists at least one cell in the trace which is not close
+    apply _find_first_is_sat
+    rcases h with ⟨rs, rsmem, h⟩
+    rcases List.getElem_of_mem rsmem with ⟨i, ilt, hirs⟩
+    have ilt' : i < 2 * p - 1 + 1 := by
+      rw [trace_length] at ilt
+      rwa [Nat.sub_one_add_one]
+      apply Nat.mul_ne_zero (by norm_num)
+      exact Nat.ne_zero_of_lt ppos
+    let i' : Fin (2 * p - 1 + 1) := ⟨i, ilt'⟩
+    use i'
+    convert h
+  · linarith
+
 -- Each run state in a sprint is equal to the corresponding element of the corresponding trace
 lemma sprint_getElem_eq_trace_getElem (p : Nat) (start : RunState) (blocked : List (Int × Int)) :
   ∀ i (ilt : i < (sprint p start blocked).length),
