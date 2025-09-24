@@ -363,43 +363,42 @@ lemma run_path_trapped_of_nice_devil_wins
   -- Construct a journey which follows the runner for the first 'i' steps
   -- and then jumps to 'rs' for the last step.
   let A := append_journey (make_run D p i ppos).A (loc rs) hclose
-  -- Show that this new journey is "allowed"
-  have hallowed' : allowed D A := by
-    intro a b alt blt₀
-    have blt₁ : b < i + 1 + 1 := by
-      rwa [append_steps, make_run_journey_steps] at blt₀
-    -- If b < i + 1, then we can use the fact that the runner's journey
-    -- is always allowed if the devil is nice
-    by_cases blt₂ : b < i + 1
-    · unfold A
-      have blt₃ : b < steps (make_run D p i ppos).A + 1 := by
-        rwa [make_run_journey_steps]
-      rw [append_subjourney]; swap
-      · rw [make_run_journey_steps]
-        exact lt_trans alt blt₂
-      rw [append_cell_ne_last _ _ _ _ blt₃]
-      exact make_run_journey_allowed_of_nice D p i ppos hnice a b alt blt₃
-    rename' blt₂ => isle; push_neg at isle
-    have bis : b = i + 1 := le_antisymm (Nat.le_of_lt_add_one blt₁) isle
-    subst bis
-    have alt' : a < n + 1 :=
-      lt_trans alt (Nat.add_one_lt_add_one_iff.mpr ilt')
-    have hsteps : steps A = i + 1 := by
-      rw [append_steps, make_run_journey_steps]
-    -- We've already proven that cells in the RunPath are never eaten
-    -- Rewrite the goal so we can apply that theorem.
-    rw [append_subjourney]; swap
-    · rwa [make_run_journey_steps]
-    rw [make_run_subjourney]; swap
-    · assumption
-    rw [← make_run_eaten D p n ppos a alt']
-    rw [← cell_congr_idx A hsteps (Nat.lt_add_one _), ← last, append_last]
-    intro h
-    exact run_path_not_eaten_of_nice D p n ppos hnice rs rsmem (List.mem_of_getElem h)
   have hlast : last A = loc rs := by
     rw [append_last]
   rw [← hlast]
   unfold close
-  by_contra! h
-  -- Now that we have proven that A is allowed, use 'htraps' to close the goal
-  exact htraps A h hallowed'
+  by_contra! hfar
+  -- Use 'htraps' to show that the goal follows from 'allowed D A'
+  apply htraps A hfar
+  -- Now we just need to prove that A is allowed
+  intro a b alt blt₀
+  have blt₁ : b < i + 1 + 1 := by
+    rwa [append_steps, make_run_journey_steps] at blt₀
+  -- If b < i + 1, then we can use the fact that the runner's journey
+  -- is always allowed if the devil is nice
+  by_cases blt₂ : b < i + 1
+  · unfold A
+    have blt₃ : b < steps (make_run D p i ppos).A + 1 := by
+      rwa [make_run_journey_steps]
+    rw [append_subjourney]; swap
+    · rw [make_run_journey_steps]
+      exact lt_trans alt blt₂
+    rw [append_cell_ne_last _ _ _ _ blt₃]
+    exact make_run_journey_allowed_of_nice D p i ppos hnice a b alt blt₃
+  rename' blt₂ => isle; push_neg at isle
+  have bis : b = i + 1 := le_antisymm (Nat.le_of_lt_add_one blt₁) isle
+  subst bis
+  have alt' : a < n + 1 :=
+    lt_trans alt (Nat.add_one_lt_add_one_iff.mpr ilt')
+  have hsteps : steps A = i + 1 := by
+    rw [append_steps, make_run_journey_steps]
+  -- We've already proven that cells in the RunPath are never eaten
+  -- Rewrite the goal so we can apply that theorem.
+  rw [append_subjourney]; swap
+  · rwa [make_run_journey_steps]
+  rw [make_run_subjourney]; swap
+  · assumption
+  rw [← make_run_eaten D p n ppos a alt']
+  rw [← cell_congr_idx A hsteps (Nat.lt_add_one _), ← last, append_last]
+  intro h
+  exact run_path_not_eaten_of_nice D p n ppos hnice rs rsmem (List.mem_of_getElem h)
