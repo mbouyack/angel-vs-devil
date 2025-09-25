@@ -111,14 +111,6 @@ lemma next_sprint_first_eq_builder_last {p : Nat} (S : RunBuilder p) :
   ) := by
   exact (sprint_getElem_zero _ _ _).symm
 
--- Every element of 'next_sprint' is close to its head
-lemma next_sprint_close_mem_head {p : Nat} (S : RunBuilder p) :
-  ∀ x ∈ (next_sprint S),
-  close p (loc x) (loc ((next_sprint S).head (next_sprint_nonnil _))) := by
-  intro x xmem
-  apply sprint_close_mem_head
-  exact xmem
-
 -- The last cell of the next sprint is "close" to the
 -- last cell of the builder journey.
 lemma next_sprint_last_close_builder_last {p : Nat} (S : RunBuilder p) :
@@ -452,15 +444,25 @@ lemma make_run_sprint (D : Devil) (p n : Nat) :
   rw [List.getElem_append_right, List.getElem_singleton, inp]
   rwa [make_run_sprints_length]
 
+-- Every "sprint" in a 'make_run' is in-fact a sprint.
+-- That is, every theorem on sprints can be applied to the sprints
+-- of a 'make_run.
+lemma make_run_sprint_is_sprint (D : Devil) (p n : Nat) :
+  ∀ s ∈ (make_run D p n).sprints,
+  ∃ start blocked, s = sprint p start blocked := by
+  intro s smem
+  rcases List.getElem_of_mem smem with ⟨i, ilt, rfl⟩
+  rw [make_run_sprints_length] at ilt
+  exact ⟨_, _, make_run_sprint D p n i ilt⟩
+
 -- Every element of a sprint is close to the head of that sprint
 lemma make_run_close_sprint_mem_head (D : Devil) (p n : Nat) :
   ∀ s, (smem : s ∈ (make_run D p n).sprints) → ∀ x ∈ s,
   close p (loc x) (loc (s.head (RunBuilder.nonnil _ _ smem))) := by
-  intro s smem x xmem
-  rcases List.getElem_of_mem smem with ⟨i, ilt, rfl⟩
-  rw [make_run_sprints_length] at ilt
-  have nseq := make_run_sprint D p n i ilt
-  convert next_sprint_close_mem_head (make_run D p i) x (nseq ▸ xmem)
+  intro s smem
+  rcases make_run_sprint_is_sprint D p n s smem with ⟨start, blocked, h⟩
+  subst h
+  exact sprint_close_mem_head p start blocked
 
 -- The last element of each sprint equals the first element of the next
 -- TODO: This seems longer than it should need to be.
@@ -739,6 +741,12 @@ lemma run_path_of_length_zero (D : Devil) (p : Nat) :
   rw [if_pos rfl, empty_builder_sprints]
   exact List.length_nil
 
+-- A RunPath based on a 'make_run' of zero sprints has a length of 1
+lemma run_path_length_of_length_zero (D : Devil) (p : Nat) :
+  (RunPath D p 0).length = 1 := by
+  rw [run_path_of_length_zero]
+  exact List.length_singleton
+
 -- Any run state in the 'run path' must exist in some sprint of the run builder
 lemma make_run_sprints_getElem_exists_of_run_path_mem (D : Devil) (p n : Nat)
   (npos : 0 < n) (rs : RunState) (hmem : rs ∈ RunPath D p n) :
@@ -833,6 +841,46 @@ lemma run_path_recurrence (D : Devil) (p n : Nat) (npos : 0 < n) :
   rw [← make_run_sprint D p n, List.getLast_eq_getElem]
   · congr; rw [make_run_sprints_length]
   · exact Nat.sub_lt npos (by norm_num)
+
+-- Recursive formula for the length of the run path
+lemma run_path_length_recurrence (D : Devil) (p n : Nat) (npos : 0 < n) :
+  (RunPath D p n).length =
+  (RunPath D p (n - 1)).length +
+  ((make_run D p n).sprints.getLast (by
+    apply List.ne_nil_of_length_pos
+    rwa [make_run_sprints_length]
+  )).length - 1 := by
+  rw [run_path_recurrence]; swap
+  · assumption
+  rw [List.length_append, List.length_tail, Nat.add_sub_assoc]
+  exact Nat.add_one_le_of_lt (List.length_pos_of_ne_nil (RunBuilder.nonnil _ _ (List.getLast_mem _)))
+
+-- As the number of sprints in the run path increases, the length of
+-- the run path also increases or remains constant.
+lemma run_path_length_non_decreasing (D : Devil) (p n : Nat) (npos : 0 < n) :
+  (RunPath D p (n - 1)).length ≤ (RunPath D p n).length := by
+  rw [run_path_length_recurrence D p n npos, Nat.add_sub_assoc]; swap
+  · apply Nat.add_one_le_of_lt (List.length_pos_of_ne_nil _)
+    exact RunBuilder.nonnil _ _ (List.getLast_mem _)
+  exact Nat.le_add_right _ _
+
+-- As the number of sprints in the run path increases, so does the
+-- length of the run path if the angel has non-zero power.
+lemma run_path_length_increasing_of_ppos
+  (D : Devil) (p n : Nat) (npos : 0 < n) (ppos : 0 < p) :
+  (RunPath D p (n - 1)).length < (RunPath D p n).length := by
+  rw [run_path_length_recurrence D p n npos, Nat.add_sub_assoc]; swap
+  · apply Nat.add_one_le_of_lt (List.length_pos_of_ne_nil _)
+    exact RunBuilder.nonnil _ _ (List.getLast_mem _)
+  apply Nat.lt_add_of_pos_right
+  have hnnil : (make_run D p n).sprints ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [make_run_sprints_length]
+  let s := ((make_run D p n).sprints.getLast hnnil)
+  rcases make_run_sprint_is_sprint D p n s (List.getLast_mem hnnil) with ⟨start, blocked, h⟩
+  change 0 < s.length - 1
+  -- Use the sprint length lower bound to finish the goal
+  exact lt_of_lt_of_le ppos (Nat.le_sub_one_of_lt (h ▸ (sprint_length_lb p start blocked)))
 
 -- A predicate to check if 'rs' is an element of a particular sprint.
 -- Argument is of type 'Fin (n - 1 + 1)' to make it compatible with
