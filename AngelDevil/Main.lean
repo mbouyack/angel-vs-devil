@@ -332,37 +332,37 @@ theorem AM2_7 (p : Nat) : (∃ D : Devil, devil_wins D p) →
 -- If the nice devil wins, then it traps the runner within the escape square.
 -- Note that this result applies to the entire 'RunPath', not just the runner's journey.
 lemma run_path_trapped_of_nice_devil_wins
-  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hdwins : devil_wins' D p) :
-  ∃ N, ∀ n, allowed D (make_run D p n ppos).A →
-  ∀ rs ∈ RunPath D p n ppos, close N (0, 0) (loc rs) := by
+  (D : Devil) (p : Nat) (hnice : nice D p) (hdwins : devil_wins' D p) :
+  ∃ N, ∀ n, allowed D (make_run D p n).A →
+  ∀ rs ∈ RunPath D p n, close N (0, 0) (loc rs) := by
   let ⟨N, htraps⟩ := hdwins
   use N
   intro n hallowed rs rsmem
   -- First handle the case where n = 0
   by_cases nz : n = 0
   · subst nz
-    rw [run_path_of_length_zero D p ppos] at rsmem
+    rw [run_path_of_length_zero D p] at rsmem
     rw [List.mem_singleton.mp rsmem]
     exact close_self N (0, 0)
   rename' nz => nnz; push_neg at nnz
   have npos : 0 < n := Nat.pos_of_ne_zero nnz
   -- Next, find the sprint that produced 'rs'
   rcases List.getElem_of_mem rsmem with ⟨k, klt, hrpk⟩
-  rcases make_run_sprints_getElem_exists_of_run_path_mem D p n ppos npos rs rsmem with ⟨i, ilt, j, jlt, hij⟩
+  rcases make_run_sprints_getElem_exists_of_run_path_mem D p n npos rs rsmem with ⟨i, ilt, j, jlt, hij⟩
   have ilt' : i < n := by rwa [make_run_sprints_length] at ilt
-  have rsmem' : rs ∈ (make_run D p n ppos).sprints[i] := List.mem_of_getElem hij
+  have rsmem' : rs ∈ (make_run D p n).sprints[i] := List.mem_of_getElem hij
   -- Prove the closeness result required for the append operation below
-  have hclose : close p (last (make_run D p i ppos).A) (loc rs) := by
+  have hclose : close p (last (make_run D p i).A) (loc rs) := by
     rw [close_comm]
-    convert make_run_sprint_mem_journey_cell_close D p n ppos i ilt' rs rsmem'
-    rw [← make_run_subjourney D p i n ppos (lt_trans ilt' (Nat.lt_add_one _))]
+    convert make_run_sprint_mem_journey_cell_close D p n i ilt' rs rsmem'
+    rw [← make_run_subjourney D p i n (lt_trans ilt' (Nat.lt_add_one _))]
     rw [last, subjourney_cell]
     apply cell_congr_idx
     · rw [subjourney_steps]
     · rw [subjourney_steps]
   -- Construct a journey which follows the runner for the first 'i' steps
   -- and then jumps to 'rs' for the last step.
-  let A := append_journey (make_run D p i ppos).A (loc rs) hclose
+  let A := append_journey (make_run D p i).A (loc rs) hclose
   have hlast : last A = loc rs := by
     rw [append_last]
   rw [← hlast]
@@ -378,13 +378,13 @@ lemma run_path_trapped_of_nice_devil_wins
   -- is always allowed if the devil is nice
   by_cases blt₂ : b < i + 1
   · unfold A
-    have blt₃ : b < steps (make_run D p i ppos).A + 1 := by
+    have blt₃ : b < steps (make_run D p i).A + 1 := by
       rwa [make_run_journey_steps]
     rw [append_subjourney]; swap
     · rw [make_run_journey_steps]
       exact lt_trans alt blt₂
     rw [append_cell_ne_last _ _ _ _ blt₃]
-    exact make_run_journey_allowed_of_nice D p i ppos hnice a b alt blt₃
+    exact make_run_journey_allowed_of_nice D p i hnice a b alt blt₃
   rename' blt₂ => isle; push_neg at isle
   have bis : b = i + 1 := le_antisymm (Nat.le_of_lt_add_one blt₁) isle
   subst bis
@@ -398,7 +398,7 @@ lemma run_path_trapped_of_nice_devil_wins
   · rwa [make_run_journey_steps]
   rw [make_run_subjourney]; swap
   · assumption
-  rw [← make_run_eaten D p n ppos a alt']
+  rw [← make_run_eaten D p n a alt']
   rw [← cell_congr_idx A hsteps (Nat.lt_add_one _), ← last, append_last]
   intro h
-  exact run_path_not_eaten_of_nice D p n ppos hnice rs rsmem (List.mem_of_getElem h)
+  exact run_path_not_eaten_of_nice D p n hnice rs rsmem (List.mem_of_getElem h)
