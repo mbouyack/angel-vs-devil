@@ -161,6 +161,31 @@ lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
   · apply this
     exact runstate_uabs_add_vabs_eq_one rs
 
+-- Adding more cells to the block list won't change the
+-- next step if that cell is not in the updated block list
+lemma next_step_unchanged_of_block_unvisited_cells
+  (blocked blocked' : List (Int × Int)) (rs : RunState) :
+  loc (next_step blocked rs) ∉ blocked' ∧ blocked ⊆ blocked' →
+  next_step blocked rs = next_step blocked' rs := by
+  intro ⟨hnmem, hss⟩
+  unfold next_step at *
+  by_cases h₀ : loc (turn_left rs) ∉ blocked
+  · rw [if_pos h₀] at *
+    rw [if_pos hnmem]
+  rw [if_neg h₀] at *
+  have h₀' : ¬loc (turn_left rs) ∉ blocked' := by
+    push_neg at *
+    exact hss h₀
+  rw [if_neg h₀']
+  by_cases h₁ : loc (move_forward rs) ∉ blocked
+  · rw [if_pos h₁] at *
+    rw [if_pos hnmem]
+  rw [if_neg h₁]
+  have h₁' : ¬loc (move_forward rs) ∉ blocked' := by
+    push_neg at *
+    exact hss h₁
+  rw [if_neg h₁']
+
 -- A value bounded by the x-coordinates of consecutive steps must equal one of those x-coordinates
 -- TODO: We didn't use this in the proof of trace_intermediate_value_x. Can we delete it?
 lemma next_step_intermediate_value_x (blocked : List (Int × Int)) (rs : RunState) :
@@ -674,4 +699,92 @@ lemma trace_intermediate_value_y (n : Nat) (rs : RunState) (blocked : List (Int 
     exact idxlt j
   ))
   apply And.intro _ hj
+  apply List.getElem_mem
+
+-- Adding cells to the blocked list has no effect on the path of the
+-- trace if none of the cells are on the original trace.
+lemma trace_unchanged_of_block_unvisited_cells
+  (n : Nat) (start : RunState) (blocked blocked' : List (Int × Int)) :
+  (∀ rs ∈ trace n start blocked, loc rs ∉ blocked') ∧ blocked ⊆ blocked' →
+  trace n start blocked = trace n start blocked' := by
+  intro ⟨hnmem, hss⟩
+  -- Handle the case where n = 0
+  by_cases nz : n = 0
+  · subst nz
+    rw [trace_nil, trace_nil]
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  -- Generalize the recursion case since we'll need it twice
+  have : ∀ i (ilt : i < n - 1), (trace n start blocked)[i]'(by
+    rw [trace_length]
+    exact lt_of_lt_of_le ilt (Nat.sub_le _ _)
+  ) = (trace n start blocked')[i]'(by
+    rw [trace_length]
+    exact lt_of_lt_of_le ilt (Nat.sub_le _ _)
+  ) := by
+    intro i ilt₀
+    have ilt₁ : i < (trace n start blocked).length := by
+      rw [trace_length]
+      exact lt_of_lt_of_le ilt₀ (Nat.sub_le _ _)
+    have ilt₂ : i < (trace n start blocked').length := by
+      rw [trace_length]
+      exact lt_of_lt_of_le ilt₀ (Nat.sub_le _ _)
+    rw [List.getElem_take' ilt₁ ilt₀]
+    rw [List.getElem_take' ilt₂ ilt₀]
+    rw [← getElem_congr_coll (trace_take _ _ _ _ (Nat.sub_le n 1))]; swap
+    · rwa [trace_length]
+    rw [← getElem_congr_coll (trace_take _ _ _ _ (Nat.sub_le n 1))]; swap
+    · rwa [trace_length]
+    congr 1
+    -- Apply the recursion, then prove that the preconditions hold
+    apply trace_unchanged_of_block_unvisited_cells
+    apply And.intro _ hss
+    intro rs rsmem
+    rw [trace_take _ _ _ _ (Nat.sub_le n 1)] at rsmem
+    exact hnmem rs (List.mem_of_mem_take rsmem)
+  apply List.ext_getElem
+  · rw [trace_length, trace_length]
+  intro i ilt₀ ilt₁
+  have ilt₂ : i < n := by
+    rwa [trace_length] at ilt₀
+  -- If i ≠ n - 1 we can apply the recursion case (proven above)
+  by_cases ilt₃ : i < n - 1
+  · exact this i ilt₃
+  rename' ilt₃ => nple; push_neg at nple
+  have inp : i = n - 1 := le_antisymm (Nat.le_sub_one_of_lt ilt₂) nple
+  subst inp
+  -- Handle the case where n - 1 = 0
+  by_cases npz : n - 1 = 0
+  · rw [getElem_congr_idx npz, getElem_congr_idx npz]
+    rw [trace_getElem_zero_of_nonnil, trace_getElem_zero_of_nonnil]
+    · apply List.ne_nil_of_length_pos
+      rwa [trace_length]
+    · apply List.ne_nil_of_length_pos
+      rwa [trace_length]
+  rename' npz => npnz; push_neg at npnz
+  have nplt : n - 1 < n := by
+    exact Nat.sub_lt_of_pos_le (by norm_num) (Nat.add_one_le_of_lt npos)
+  have npplt : n - 1 - 1 < n - 1 := by
+    apply Nat.sub_lt_sub_right _ nplt
+    exact Nat.add_one_le_of_lt (Nat.pos_of_ne_zero npnz)
+  -- Rewrite the indices so we can apply the trace recurrence
+  rw [← getElem_congr_idx (Nat.sub_one_add_one npnz)]; swap
+  · rwa [trace_length, Nat.sub_one_add_one]
+    assumption
+  rw [← getElem_congr_idx (Nat.sub_one_add_one npnz)]; swap
+  · rwa [trace_length, Nat.sub_one_add_one]
+    assumption
+  rw [trace_getElem_recurrence]; swap
+  · rwa [Nat.sub_one_add_one npnz]
+  rw [trace_getElem_recurrence]; swap
+  · rwa [Nat.sub_one_add_one npnz]
+  rw [← this (n - 1 - 1) npplt]
+  -- Apply the corresponding result for 'next_step' to finish the goal
+  apply next_step_unchanged_of_block_unvisited_cells
+  apply And.intro _ hss
+  apply hnmem
+  -- Now we just need to prove that the result of 'next_step'
+  -- was in the original trace.
+  rw [← trace_getElem_recurrence]; swap
+  · rwa [Nat.sub_one_add_one npnz]
   apply List.getElem_mem
