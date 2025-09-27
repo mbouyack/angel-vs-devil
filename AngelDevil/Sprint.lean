@@ -156,3 +156,36 @@ lemma sprint_avoids_blocked (p : Nat) (start : RunState)
   unfold sprint at hmem₀
   split_ifs at hmem₀ with h
   repeat exact trace_avoids_blocked _ start blocked hsafe x hmem₀ hmem₁
+
+-- If two different block lists produce the same trace for
+-- every distance, then the corresponding sprints are equal.
+lemma sprints_match_of_traces_match
+  (p : Nat) (start : RunState) (blocked₀ blocked₁ : List (Int × Int)) :
+  (∀ n, trace n start blocked₀ = trace n start blocked₁) →
+  sprint p start blocked₀ = sprint p start blocked₁ := by
+  intro htraces
+  have htrace := htraces (2 * p + 1)
+  unfold sprint
+  by_cases h₀ : ∃ rs ∈ trace (2 * p + 1) start blocked₀, ¬close p (loc start) (loc rs)
+  · rw [if_pos h₀]
+    let h₀tmp := h₀
+    rcases h₀tmp with ⟨rs, rsmem, hfar⟩
+    have h₁ : ∃ rs ∈ trace (2 * p + 1) start blocked₁, ¬close p (loc start) (loc rs) :=
+      ⟨rs, htrace ▸ rsmem, hfar⟩
+    rw [if_pos h₁]
+    convert htraces _ using 2
+    apply (Fin.val_eq_val _ _).mpr
+    congr; ext i
+    unfold sprint_end_fun
+    constructor
+    repeat
+    · rw [getElem_congr_coll htrace]
+      exact id
+  · rw [if_neg h₀]
+    have h₁ : ¬∃ rs ∈ trace (2 * p + 1) start blocked₁, ¬close p (loc start) (loc rs) := by
+      push_neg at *
+      intro rs rsmem
+      rw [← htrace] at rsmem
+      exact h₀ rs rsmem
+    rw [if_neg h₁]
+    exact htrace
