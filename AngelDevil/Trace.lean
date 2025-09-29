@@ -352,6 +352,19 @@ lemma trace_getElem_recurrence (n : Nat) (rs : RunState) (blocked : List (Int ×
   -- Now we can recurse!
   exact trace_getElem_recurrence (n - 1) (next_step blocked rs) blocked (i - 1) ipslt
 
+-- Another recurrence for getting a particular element of a trace
+lemma trace_getElem_recurrence' (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
+  ∀ i (_ : 0 < i) (islt : i < n),
+  (trace n rs blocked)[i]'(by rwa [trace_length]) =
+  next_step blocked ((trace n rs blocked)[i-1]'(by
+    rw [trace_length]
+    exact lt_of_le_of_lt (Nat.sub_le _ _) islt
+  )) := by
+  intro i ipos ilt
+  have inz : i ≠ 0 := Nat.ne_zero_of_lt ipos
+  rw [← getElem_congr_idx (Nat.sub_one_add_one inz), trace_getElem_recurrence]
+  exact lt_of_eq_of_lt (Nat.sub_one_add_one inz) ilt
+
 -- Taking the first 'm' states from a trace of length 'n' results in
 -- the same list as the trace of length 'm'
 lemma trace_take (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
@@ -403,6 +416,33 @@ lemma trace_getElem_getLast (n : Nat) (rs : RunState) (blocked : List (Int × In
   rw [List.getLast_eq_getElem, List.getElem_take]
   congr
   rw [htakelen, Nat.add_one_sub_one]
+
+-- A trace can be split into two appended traces
+lemma trace_split (m n : Nat) (mlt : m < n) (rs : RunState) (blocked : List (Int × Int)) :
+  trace n rs blocked = (trace m rs blocked) ++
+  (trace (n - m) ((trace n rs blocked)[m]'(by rwa [trace_length])) blocked) := by
+  have hnnil : trace n rs blocked ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.zero_lt_of_lt mlt
+  by_cases mz : m = 0
+  · subst mz
+    rwa [trace_nil, List.nil_append, Nat.sub_zero, trace_getElem_zero_of_nonnil]
+  rename' mz => mnz; push_neg at mnz
+  have mpos : 0 < m := Nat.pos_of_ne_zero mnz
+  have hnnil' : trace m rs blocked ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [trace_length]
+  nth_rw 1 [trace_cons_of_nonnil n rs blocked hnnil]
+  rw [trace_cons_of_nonnil m rs blocked hnnil']
+  rw [List.cons_append]
+  congr
+  have mplt := Nat.sub_lt_sub_right (Nat.one_le_of_lt mpos) mlt
+  convert trace_split (m - 1) (n - 1) mplt (next_step blocked rs) blocked using 3
+  · exact (Nat.sub_sub_sub_cancel_right (Nat.one_le_of_lt mpos)).symm
+  rw [getElem_congr_coll (trace_cons_of_nonnil n rs blocked hnnil)]
+  rw [getElem_congr_idx (Nat.sub_one_add_one mnz).symm]
+  rw [List.getElem_cons_succ]
 
 -- Theorem relating a sub-list of a trace to a trace that
 -- begins with the first element of that sub-list
