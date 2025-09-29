@@ -98,6 +98,25 @@ lemma sprint_length_lb (p : Nat) (start : RunState) (blocked : List (Int × Int)
     convert h
   · linarith
 
+lemma sprint_pzero (start : RunState) (blocked : List (Int × Int)) :
+  sprint 0 start blocked = [start] := by
+  have hlb := sprint_length_lb 0 start blocked
+  have hle := sprint_length_le 0 start blocked
+  rw [Nat.mul_zero, Nat.zero_add] at hle
+  have : (sprint 0 start blocked).length = [start].length := by
+    rw [List.length_singleton]
+    exact le_antisymm hle (Nat.one_le_of_lt hlb)
+  apply List.ext_getElem this
+  intro i ilt₀ ilt₁
+  rw [List.length_singleton] at ilt₁
+  have iz : i = 0 := Nat.lt_one_iff.mp ilt₁
+  subst iz
+  rw [List.getElem_singleton, sprint_getElem_zero]
+
+lemma sprint_pzero_length (start : RunState) (blocked : List (Int × Int)) :
+  (sprint 0 start blocked).length = 1 := by
+  rw [sprint_pzero, List.length_singleton]
+
 -- Each run state in a sprint is equal to the corresponding element of the corresponding trace
 lemma sprint_getElem_eq_trace_getElem (p : Nat) (start : RunState) (blocked : List (Int × Int)) :
   ∀ i (ilt : i < (sprint p start blocked).length),

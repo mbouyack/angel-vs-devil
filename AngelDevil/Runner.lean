@@ -938,6 +938,37 @@ lemma run_path_length_recurrence (D : Devil) (p n : Nat) (npos : 0 < n) :
   rw [List.length_append, List.length_tail, Nat.add_sub_assoc]
   exact Nat.add_one_le_of_lt (List.length_pos_of_ne_nil (RunBuilder.nonnil _ _ (List.getLast_mem _)))
 
+-- This theorem handles the degenerate case where p = 0
+lemma run_path_pzero (D : Devil) (n : Nat) : (RunPath D 0 n) = [run_start] := by
+  by_cases nz : n = 0
+  · subst nz
+    rw [run_path_of_length_zero]
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  rw [run_path_recurrence D 0 n npos, run_path_pzero]
+  convert List.append_nil _
+  have hsnnil : (make_run D 0 n).sprints ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [make_run_sprints_length]
+  rw [List.getLast_eq_getElem hsnnil, make_run_sprint]; swap
+  · rw [make_run_sprints_length]
+    exact Nat.sub_lt npos Nat.zero_lt_one
+  unfold next_sprint
+  rw [sprint_pzero]
+  apply List.eq_nil_of_length_eq_zero
+  rw [List.length_tail, List.length_singleton]
+
+-- Every run path has positive length
+lemma run_path_length_pos (D : Devil) (p n : Nat) : 0 < (RunPath D p n).length := by
+  by_cases nz : n = 0
+  · subst nz
+    rw [run_path_length_of_length_zero]; norm_num
+  rename' nz => nnz; push_neg at nnz
+  rw [run_path_length_recurrence D p n (Nat.pos_of_ne_zero nnz)]
+  rw [Nat.add_sub_assoc]; swap
+  · exact Nat.add_one_le_of_lt (List.length_pos_of_ne_nil (RunBuilder.nonnil _ _ (List.getLast_mem _)))
+  exact Nat.add_pos_left (run_path_length_pos D p (n - 1)) _
+
 -- As the number of sprints in the run path increases, the length of
 -- the run path also increases or remains constant.
 lemma run_path_length_non_decreasing (D : Devil) (p n : Nat) (npos : 0 < n) :

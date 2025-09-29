@@ -256,6 +256,12 @@ lemma trace_getElem_zero_of_nonnil (n : Nat) (rs : RunState) (blocked : List (In
   · exact False.elim (hnnil this)
   rw [getElem_congr_coll this, List.getElem_cons_zero]
 
+-- Identity for the trace of length '1'
+lemma trace_singleton (rs : RunState) (blocked : List (Int × Int)) :
+  trace 1 rs blocked = [rs] := by
+  unfold trace; simp
+  exact trace_nil _ _
+
 -- If the list constructed by trace is not empty, rewrite it in 'cons' form.
 lemma trace_cons_of_nonnil (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
   (hnnil : trace n rs blocked ≠ []) →
