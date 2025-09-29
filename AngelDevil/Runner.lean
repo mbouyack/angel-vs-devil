@@ -564,6 +564,24 @@ lemma make_run_next_sprint_mem_journey_cell_close (D : Devil) (p n : Nat) :
 def make_block_list (D : Devil) (p n : Nat) : List (Int × Int) :=
   List.union (make_run D p n).eaten (west_wall p (make_run D p n).eaten.length)
 
+-- Each block list contains a subset of cells from any later block list
+lemma make_block_list_subset (D : Devil) (p m n : Nat) (mle : m ≤ n) :
+  make_block_list D p m ⊆ make_block_list D p n := by
+  intro x xmem
+  apply List.mem_union_iff.mpr
+  rcases List.mem_union_iff.mp xmem with lhs | rhs
+  · left
+    rw [← make_run_eaten_take D p m n (Nat.lt_add_one_of_le mle)] at lhs
+    exact List.mem_of_mem_take lhs
+  · right
+    unfold west_wall at rhs
+    rcases List.mem_map.mp rhs with ⟨a, amem, rfl⟩
+    have alt := List.mem_range.mp amem
+    rw [make_run_eaten_length] at *
+    apply west_wall_mem p (n + 1) a
+    apply le_trans (Nat.le_of_lt_add_one alt) (Nat.mul_le_mul_left _ _)
+    exact Nat.add_one_le_add_one_iff.mpr (Nat.add_one_le_add_one_iff.mpr mle)
+
 -- Expand the 'next_sprint' of a 'make_run' using 'make_block_list'
 lemma next_sprint_make_run_def (D : Devil) (p n : Nat) :
   next_sprint (make_run D p n) =
