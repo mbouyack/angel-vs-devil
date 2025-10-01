@@ -6,7 +6,6 @@ import AngelDevil.Focused
 import AngelDevil.Runner
 
 set_option linter.style.longLine false
-set_option linter.style.multiGoal false
 
 /-
   This file contains the most significant results from Máthé's paper,
@@ -64,15 +63,13 @@ lemma extended_perimeter (D : Devil) (p : Nat) (N : Nat) (htraps : traps_in_squa
     push_neg at h
     rcases h with ⟨ilt, jlt, hinside, hcaught⟩
     rw [subjourney_steps] at jlt
-    rw [subjourney_cell] at hinside
-    rw [subjourney_subjourney, subjourney_cell] at hcaught
+    rw [subjourney_cell] at hinside; swap
+    · exact Nat.le_of_lt_add_one jlt
+    rw [subjourney_subjourney _ (lt_trans ilt jlt), subjourney_cell] at hcaught; swap
+    · exact Nat.le_of_lt_add_one jlt
     use i, j; push_neg
     use ilt, lt_trans jlt
       (Nat.add_one_lt_add_one_iff.mpr (Nat.lt_of_le_of_ne (Nat.le_of_lt_add_one k.2) knl))
-    -- Prove pending bounds checks
-    · exact Nat.le_of_lt_add_one jlt
-    · exact lt_trans ilt jlt
-    · exact Nat.le_of_lt_add_one jlt
   rename' knl => hkl; push_neg at hkl
   -- Use 'htraps' to reduce the goal to proving that step 'j'
   -- is inside the extended perimeter.
