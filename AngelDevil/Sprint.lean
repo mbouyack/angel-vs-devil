@@ -209,3 +209,12 @@ lemma sprints_match_of_traces_match
       exact h₀ rs rsmem
     rw [if_neg h₁]
     exact htrace
+
+-- Re-write a sprint as the trace of the same length
+lemma sprint_eq_trace (p N : Nat) (start : RunState) (blocked : List (Int × Int))
+  (hN : N = (sprint p start blocked).length) :
+  sprint p start blocked = trace N start blocked := by
+  rw [hN]
+  unfold sprint
+  congr
+  rw [trace_length]

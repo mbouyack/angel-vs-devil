@@ -601,6 +601,17 @@ lemma make_run_final_state_mem_next_state (D : Devil) (p n : Nat) (npos : 0 < n)
   · exact list_singleton_ne_nil _
   rw [List.getLast_singleton]
 
+-- Show how to rewrite the last sprint of a 'make_run' as a raw sprint
+lemma make_run_sprints_get_last_eq_sprint (D : Devil) (p n : Nat) (npos : 0 < n) :
+  (make_run D p n).sprints.getLast (by
+    apply List.ne_nil_of_length_pos
+    rwa [make_run_sprints_length]) =
+  sprint p (final_state (make_run D p (n - 1))) (make_block_list D p (n - 1)) := by
+  rw [List.getLast_eq_getElem, make_run_sprint, next_sprint_make_run_def]; swap
+  · rw [make_run_sprints_length]
+    exact Nat.sub_lt npos Nat.zero_lt_one
+  rw [make_run_sprints_length]
+
 -- This theorem is a bit odd, but useful in several places.
 -- It states that a 'make_run' never steps on a later block list, given
 -- that it never steps on its own block list and the devil is nice.
@@ -738,6 +749,14 @@ lemma make_run_next_sprint_avoids_blocked_of_nice (D : Devil) (p n : Nat) (hnice
   have := make_run_next_sprint_avoids_later_block_list_of_nice D p (n - 1) hnice _ fsmem hsafe n (Nat.sub_le _ _)
   exact sprint_avoids_blocked p _ _ this rs rsmem lrsmem
 
+-- The 'next_sprint' will never include a cell which appears on a later block list
+lemma make_run_next_sprint_avoids_later_block_list
+  (D : Devil) (p m n : Nat) (mle : m ≤ n) (hnice : nice D p) :
+  ∀ rs ∈ next_sprint (make_run D p m), loc rs ∉ make_block_list D p n := by
+  intro rs rsmem
+  apply make_run_next_sprint_avoids_later_block_list_of_nice D p m hnice rs rsmem _ n mle
+  exact make_run_next_sprint_avoids_blocked_of_nice D p m hnice rs rsmem
+
 lemma make_run_journey_allowed_of_nice (D : Devil) (p n : Nat) (hnice : nice D p) :
   allowed D (make_run D p n).A := by
   let MR := make_run D p n
@@ -751,7 +770,7 @@ lemma make_run_journey_allowed_of_nice (D : Devil) (p n : Nat) (hnice : nice D p
     lt_of_lt_of_le ilt (Nat.le_of_lt_add_one jlt')
   have npos : 0 < n := Nat.zero_lt_of_lt ilt'
   have nnez : n ≠ 0 := Nat.ne_zero_of_lt npos
-  -- Re-write the left-hand side using the journey recurrence
+  -- Rewrite the left-hand side using the journey recurrence
   have lhs_rw : subjourney MR.A i (lt_trans ilt jlt) =
     subjourney (make_run D p (n - 1)).A i (by
       rwa [make_run_journey_steps, Nat.sub_one_add_one]
@@ -1181,3 +1200,163 @@ lemma run_path_not_eaten_of_nice (D : Devil) (p n : Nat) (hnice : nice D p) :
   · apply Nat.le_sub_one_of_lt
     rw [make_run_eaten_length] at klt
     exact lt_of_le_of_ne (Nat.le_of_lt_add_one klt) knen
+
+-- Any RunPath is equal to the trace of the same length which begins at
+-- 'run_start' and avoids all cells in the block list for that RunPath
+-- Note that the block list used for the trace doesn't have to be the
+-- last one used in the run path. Any later block list will also work.
+-- The theorem is stated in this way because it allows us to recurse.
+lemma run_path_eq_trace_of_nice (D : Devil) (p m n : Nat) (mle : m ≤ n - 1) (hnice : nice D p) :
+  RunPath D p m =
+  trace (RunPath D p m).length run_start (make_block_list D p n) := by
+  -- Later in the argument we'll need to assume 0 < p,
+  -- so deal with the degenerate case now.
+  by_cases pz : p = 0
+  · subst pz
+    rw [run_path_pzero, List.length_singleton, trace_singleton]
+  rename' pz => pnz; push_neg at pnz
+  have ppos : 0 < p := Nat.pos_of_ne_zero pnz
+  apply List.ext_getElem
+  · rw [trace_length]
+  intro k klt _
+  let T := trace (RunPath D p m).length run_start (make_block_list D p n)
+  change (RunPath D p m)[k] = T[k]
+  -- Now handle the case where m = 0
+  by_cases mz : m = 0
+  · subst mz
+    rw [getElem_congr_coll (run_path_of_length_zero D p)]
+    rw [List.getElem_singleton]
+    have hnnil : T ≠ [] := by
+      apply List.ne_nil_of_length_eq_add_one
+      rw [trace_length]
+      exact run_path_length_of_length_zero _ _
+    convert (trace_getElem_zero_of_nonnil _ _ _ hnnil).symm
+    apply Nat.lt_one_iff.mp
+    exact lt_of_lt_of_eq klt (run_path_length_of_length_zero D p)
+  rename' mz => mnz; push_neg at mnz
+  have mpos : 0 < m := Nat.pos_of_ne_zero mnz
+  -- Generalize the recursion case, since we'll need it more than once
+  have hrecurse : ∀ k' (k'lt : k' < (RunPath D p (m - 1)).length),
+    (RunPath D p m)[k']'(by
+      apply lt_of_lt_of_le k'lt
+      exact run_path_length_non_decreasing _ _ _ mpos
+    ) =
+    T[k']'(by
+      rw [trace_length]
+      apply lt_of_lt_of_le k'lt
+      exact run_path_length_non_decreasing _ _ _ mpos
+    ) := by
+    intro k' k'lt
+    rw [getElem_congr_coll (run_path_recurrence D p m mpos)]
+    rw [List.getElem_append_left k'lt]
+    -- Rewrite 'T[k]' so the collections match and we can use 'congr'
+    rw [← @List.getElem_take _ T (RunPath D p (m - 1)).length k']; swap
+    · rwa [List.length_take, trace_length, min_eq_left]
+      exact run_path_length_non_decreasing _ _ _ mpos
+    congr
+    rw [← trace_take]; swap
+    · exact run_path_length_non_decreasing _ _ _ mpos
+    rw [run_path_eq_trace_of_nice, trace_length]; swap
+    · assumption
+    exact le_trans (Nat.sub_le m 1) mle
+  -- If the step indicated by 'k' doesn't fall in the last sprint, we can recurse
+  by_cases klt' : k < (RunPath D p (m - 1)).length
+  · exact hrecurse k klt'
+  rename' klt' => lek; push_neg at lek
+  rw [getElem_congr_coll (run_path_recurrence D p m mpos)]
+  rw [List.getElem_append_right lek, List.getElem_tail]
+  let i := (RunPath D p (m - 1)).length - 1
+  have ilt : i < (RunPath D p m).length := by
+    apply Nat.sub_one_lt_of_le (run_path_length_pos D p (m - 1))
+    exact run_path_length_non_decreasing D p m mpos
+  -- Split the trace so we can focus on the section that corresponds to the sprint
+  have hsplit := trace_split i (RunPath D p m).length ilt run_start (make_block_list D p n)
+  rw [getElem_congr_coll hsplit, List.getElem_append_right]; swap
+  · rw [trace_length]
+    exact le_trans (Nat.sub_le _ _) lek
+  have hnnil : (make_run D p m).sprints ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [make_run_sprints_length]
+  -- Use the existing result to convert the last sprint into a raw sprint
+  have hlast := make_run_sprints_get_last_eq_sprint D p m mpos
+  -- Rewrite the last sprint as a raw sprint so we can eventually
+  -- represent it as an equivalent trace.
+  rw [getElem_congr_coll hlast]
+  have npos : 0 < n := lt_of_lt_of_le mpos (le_trans mle (Nat.sub_le _ _))
+  have mple : m - 1 ≤ n :=
+    le_of_lt (lt_trans (Nat.sub_one_lt mnz) (Nat.lt_of_le_sub_one npos mle))
+  -- Some useful abbreviations
+  let fsmp := final_state (make_run D p (m - 1))
+  let BL := make_block_list D p (m - 1)
+  let N := (sprint p fsmp BL).length
+  have seqt := sprint_eq_trace p N fsmp BL rfl
+  -- Rewrite the sprint as a trace of the same length
+  rw [getElem_congr_coll seqt]
+  -- Now we can 'congr' but only once, since the block lists don't match yet
+  congr 1; swap
+  · -- First prove the indices are equal,
+    -- since that is the simpler of the two branches
+    rw [trace_length]; unfold i
+    rw [Nat.sub_sub_right]; swap
+    · exact (Nat.one_le_of_lt (run_path_length_pos D p (m - 1)))
+    rw [Nat.sub_add_comm lek]
+  -- Rewrite the trace on the left-hand side to use the later block list
+  rw [trace_unchanged_of_block_unvisited_cells N fsmp BL (make_block_list D p n)]; swap
+  · -- We've already proven that earlier block lists
+    -- are subsets of later block lists, so apply that now.
+    apply And.intro _ (make_block_list_subset D p (m - 1) n mple)
+    intro rs rsmem
+    -- We've proven that a sprint will avoid later block lists
+    -- so use this fact to conclude that so will the equivalent trace.
+    apply make_run_next_sprint_avoids_later_block_list D p (m - 1) n mple hnice rs
+    rwa [next_sprint_make_run_def, seqt]
+  -- Now that we've swapped the block list, we can 'congr' which will require us to
+  -- show that the starting point and trace lengths match in order to close the goal.
+  congr
+  · -- First show that the lengths match
+    unfold N i
+    rw [run_path_length_recurrence D p m mpos, hlast, add_comm]
+    rw [Nat.sub_sub_right]; swap
+    · exact Nat.one_le_of_lt (run_path_length_pos D p (m - 1))
+    rw [Nat.sub_one_add_one]; swap
+    · exact Nat.ne_zero_of_lt (Nat.lt_add_right _ (sprint_length_lb _ _ _))
+    rw [Nat.add_sub_cancel]
+  · -- Now show that the starting points match
+    -- We'll start by applying the recursion again
+    have ilt' : i < (RunPath D p (m - 1)).length :=
+      Nat.sub_lt (run_path_length_pos _ _ _) Nat.zero_lt_one
+    rw [← hrecurse i ilt']
+    rw [getElem_congr_coll (run_path_recurrence D p m mpos)]
+    rw [List.getElem_append_left ilt']
+    have hnnil' : RunPath D p (m - 1) ≠ [] := by
+      apply List.ne_nil_of_length_pos
+      exact run_path_length_pos _ _ _
+    rw [← List.getLast_eq_getElem hnnil']
+    -- TODO: It seems we shouldn't need to unfold final_state
+    -- Maybe we should have a theorem for that instead?
+    unfold fsmp final_state
+    -- Use 'split_ifs' to handle the case where m - 1 = 0
+    split_ifs with hsl
+    · rw [make_run_sprints_length] at hsl
+      convert (List.getLast_singleton (list_singleton_ne_nil run_start)).symm
+      rw [hsl]
+      exact run_path_of_length_zero D p
+    push_neg at hsl
+    rw [make_run_sprints_length] at hsl
+    have mppos : 0 < m - 1 :=
+      Nat.lt_of_le_of_ne (Nat.le_sub_one_of_lt mpos) hsl.symm
+    -- Apply the run path recurrence a second time
+    rw [List.getLast_congr _ _ (run_path_recurrence D p (m - 1) mppos)]; swap
+    · apply List.append_ne_nil_of_left_ne_nil
+      apply List.ne_nil_of_length_pos
+      exact run_path_length_pos _ _ _
+    rw [List.getLast_append_right]; swap
+    · apply List.ne_nil_of_length_pos
+      rw [List.length_tail]
+      rw [make_run_sprints_get_last_eq_sprint D p (m - 1) mppos]
+      -- To prove the last sprint has length greater than 1 we need to use
+      -- the lower bound on sprint length combined with the fact that 0 < p.
+      -- Note that *this* is why we had to handle the case where p = 0
+      -- all the way back at the beginning of the proof!
+      exact Nat.sub_pos_of_lt (lt_of_le_of_lt (Nat.one_le_of_lt ppos) (sprint_length_lb p _ _))
+    rw [List.getLast_tail]
