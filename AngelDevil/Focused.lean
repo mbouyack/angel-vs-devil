@@ -767,11 +767,6 @@ lemma make_focused_is_focused (D : Devil) (N : Nat) : focused (make_focused D N)
     apply focused_cells_getElem_zero_is_focused_of_normal_journey D N sjA snz
     rwa [subjourney_steps]
 
---#check Equiv.symm
---#check Finite.injective_iff_surjective_of_equiv (square_equiv.symm)
-
-
-
 /- For any focused devil and angel journey over a certain length, every cell
    within a distance of 'N' from the origin will have been eaten -/
 lemma focused_eats_all_close (D : Devil) (p : Nat) (N : Nat) :
