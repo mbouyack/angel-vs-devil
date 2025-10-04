@@ -116,6 +116,27 @@ lemma list_nodupes_singleton_append_iff
     · rcases h' with ⟨b, meml, memr⟩
       exact hmem ((List.mem_singleton.mp meml) ▸ memr)
 
+-- Appending a single element to the right of a list will result
+-- in a list with no duplicates if-and-only-if that element is not
+-- in the original list and the original list already has no duplicates.
+lemma list_nodupes_append_singleton_iff
+  {α : Type} [DecidableEq α] (L : List α) (a : α) :
+  list_nodupes (L ++ [a]) ↔ a ∉ L ∧ list_nodupes L := by
+  constructor
+  · intro h
+    contrapose! h
+    apply list_nodupes_append_dupes_iff.mpr
+    by_cases hmem : a ∈ L
+    · exact Or.inr (Or.inr ⟨a, hmem, List.mem_singleton_self a⟩)
+    exact Or.inl (h hmem)
+  · intro ⟨hmem, hnd⟩
+    by_contra! h
+    rcases list_nodupes_append_dupes_iff.mp h with h' | h' | h'
+    · exact h' hnd
+    · exact h' (list_nodupes_singleton a)
+    · rcases h' with ⟨b, meml, memr⟩
+      exact hmem ((List.mem_singleton.mp memr) ▸ meml)
+
 -- Two conclusion that follow from a list 'x::xs' having no duplicates
 lemma list_nodupes_cons_iff {α : Type} [DecidableEq α] (x : α) (xs : List α) :
   list_nodupes (x::xs) ↔ x ∉ xs ∧ list_nodupes xs :=
