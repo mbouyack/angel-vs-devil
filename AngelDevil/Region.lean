@@ -469,6 +469,7 @@ lemma region_builder_try_add_cell_pending_head
   · exact List.head_append_left hnnil
   · rfl
 
+-- All cells in the region builder prior to call 'try_add_cells' will still be in the region builder after.
 lemma region_builder_try_add_cell_subset_all_cells
   (RB : RegionBuilder) (c : Int × Int) :
   region_builder_all_cells RB ⊆ region_builder_all_cells (region_builder_try_add_cell RB c) := by
@@ -706,6 +707,24 @@ lemma region_builder_add_pending_start (RB : RegionBuilder) (hnnil : RB.pending 
   (region_builder_add_pending_of_ne_nil RB hnnil hnadj).start = RB.start := by
   unfold region_builder_add_pending_of_ne_nil; dsimp
 
+-- All cells in the region builder prior to call 'add_pending' will still be in the region builder after.
+lemma region_builder_add_pending_subset_all_cells (RB : RegionBuilder) (hnnil : RB.pending ≠ [])
+  (hnadj : ∀ c ∈ RB.unvisited, ¬adjacent c (RB.pending.head hnnil)) :
+  region_builder_all_cells RB ⊆
+  region_builder_all_cells (region_builder_add_pending_of_ne_nil RB hnnil hnadj) := by
+  unfold region_builder_add_pending_of_ne_nil region_builder_all_cells; dsimp
+  intro x xmem
+  rcases List.mem_append.mp xmem with lhs | rhs
+  · rcases List.mem_append.mp lhs with lhs' | rhs'
+    · exact List.mem_cons_of_mem _ (List.mem_append_left _ (List.mem_append_left _ lhs'))
+    · by_cases xh : x = RB.pending.head hnnil
+      · subst xh
+        exact List.mem_cons_self
+      · rename' xh => xnh; push_neg at xnh
+        apply List.mem_cons_of_mem _ (List.mem_append_left _ (List.mem_append_right _ _))
+        exact list_mem_tail_of_mem_of_ne_head _ hnnil x rhs' xnh
+  · exact List.mem_cons_of_mem _ (List.mem_append_right _ rhs)
+
 -- Main processing step of the 'make_region' algorithm.
 -- This moves the head of the 'pending' list into the region and
 -- attempts to add the four orthogonally adjacent cells to the
@@ -759,6 +778,16 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
       unfold adjacent; push_neg at *
       exact ⟨hup.symm, hdown.symm, hleft.symm, hright.symm⟩
     ))
+
+-- All cells in the region builder prior to call 'make_region_step' will still be in the region builder after.
+lemma make_region_step_subset_all_cells (RB : RegionBuilder) (hnnil : RB.pending ≠ []) :
+  region_builder_all_cells RB ⊆
+  region_builder_all_cells (make_region_step RB hnnil) := by
+  unfold make_region_step
+  intro x xmem
+  apply region_builder_add_pending_subset_all_cells
+  repeat apply region_builder_try_add_cell_subset_all_cells
+  assumption
 
 -- Reusable termination proof for 'make_region' and related theorems
 lemma make_region_terminates (RB : RegionBuilder) (hnnil : RB.pending ≠ []) :
@@ -823,6 +852,20 @@ termination_by RB.pending.length + RB.unvisited.length
 decreasing_by
   exact make_region_terminates _ _
 
+-- All cells in the region builder prior to call 'make_region_impl' will still be in the region builder after.
+lemma make_region_impl_subset_all_cells (RB : RegionBuilder) :
+  region_builder_all_cells RB ⊆ region_builder_all_cells (make_region_impl RB) := by
+  unfold make_region_impl
+  intro x xmem
+  split_ifs with h
+  · assumption
+  · apply make_region_impl_subset_all_cells
+    apply make_region_step_subset_all_cells
+    assumption
+termination_by RB.pending.length + RB.unvisited.length
+decreasing_by
+  exact make_region_terminates _ _
+
 -- Find the region of orthogonally connected cells in 'L' which contains 'start'
 -- Note that if start ∉ L it will return a 1-cell region with just 'start'.
 def make_region (L : List (Int × Int)) (start : (Int × Int)) : RegionBuilder :=
@@ -858,3 +901,25 @@ lemma region_start_mem (L : List (Int × Int)) (start : (Int × Int)) :
 lemma region_ne_nil (L : List (Int × Int)) (start : (Int × Int)) :
   Region L start ≠ [] :=
   List.ne_nil_of_mem (region_start_mem L start)
+
+lemma region_mem_of_path_exists (L : List (Int × Int)) (start : (Int × Int)) :
+  ∀ a, (path_exists a start L) → a ∈ Region L start := by
+  unfold Region make_region
+  intro a pathex
+  have hss : L ⊆ region_builder_all_cells (make_region_impl (region_builder_init L start)) := by
+    intro x xmem
+    apply make_region_impl_subset_all_cells
+    exact region_builder_init_subset_all_cells _ _ xmem
+  have pathex' := path_exists_subset a start _ _ hss pathex
+  have hpath := (make_region_impl (region_builder_init L start)).hpath a
+  rw [make_region_impl_start, region_builder_init_start] at hpath
+  rcases hpath pathex' with lhs | rhs
+  · rcases List.mem_append.mp lhs with lhs' | rhs'
+    · assumption
+    · absurd rhs'
+      convert List.not_mem_nil
+      exact make_region_pending_nil _ _
+  · rcases rhs with ⟨b, bmem, _⟩
+    absurd bmem
+    convert List.not_mem_nil
+    exact make_region_pending_nil _ _
