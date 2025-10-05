@@ -228,6 +228,9 @@ structure RegionBuilder where
     a ∈ (region ++ pending) ∨
     ∃ b ∈ pending, path_exists b a (pending ++ unvisited)
 
+def region_builder_all_cells (RB : RegionBuilder) : List (Int × Int) :=
+  RB.region ++ RB.pending ++ RB.unvisited
+
 -- In a RegionBuilder, no item will be an element of both 'pending' and 'unvisited'
 lemma region_builder_notmem_pending_and_unvisited (RB : RegionBuilder) :
   ∀ c, ¬(c ∈ RB.pending ∧ c ∈ RB.unvisited) := by
@@ -277,6 +280,17 @@ def region_builder_init (L : List (Int × Int)) (_start : (Int × Int)) : Region
     right
     use _start, List.mem_singleton_self _
     rwa [path_exists_comm]
+
+lemma region_builder_init_subset_all_cells (L : List (Int × Int)) (start : (Int × Int)) :
+  L ⊆ region_builder_all_cells (region_builder_init L start) := by
+  unfold region_builder_init region_builder_all_cells; dsimp
+  intro c cmem
+  by_cases cs : c = start
+  · subst cs
+    exact List.mem_cons_self
+  rename' cs => cns; push_neg at cns
+  apply List.mem_cons_of_mem _ ((List.mem_erase_of_ne cns).mpr _)
+  exact (list_rm_dupes_mem_iff _ _).mpr cmem
 
 -- 'start' in 'region_builder_init' is as given
 lemma region_builder_init_start (L : List (Int × Int)) (start : (Int × Int)) :
@@ -454,6 +468,28 @@ lemma region_builder_try_add_cell_pending_head
   split_ifs with h
   · exact List.head_append_left hnnil
   · rfl
+
+lemma region_builder_try_add_cell_subset_all_cells
+  (RB : RegionBuilder) (c : Int × Int) :
+  region_builder_all_cells RB ⊆ region_builder_all_cells (region_builder_try_add_cell RB c) := by
+  unfold region_builder_try_add_cell
+  split_ifs with h
+  · unfold region_builder_all_cells; dsimp
+    intro x xmem
+    rcases List.mem_append.mp xmem with lhs | rhs
+    · rcases List.mem_append.mp lhs with lhs' | rhs'
+      · exact List.mem_append_left _ (List.mem_append_left _ lhs')
+      · exact List.mem_append_left _ (List.mem_append_right _ (List.mem_append_left _ rhs'))
+    · by_cases xc : x = c
+      · subst xc
+        apply List.mem_append_left _ (List.mem_append_right _ _)
+        exact List.mem_append_right _ (List.mem_singleton_self _)
+      · rename' xc => xnc; push_neg at xnc
+        apply List.mem_append_right
+        exact (List.mem_erase_of_ne xnc).mpr rhs
+  · unfold region_builder_all_cells
+    intro x xmem
+    assumption
 
 -- Missing list theorem
 lemma list_mem_tail_of_mem_of_ne_head {α : Type} (L : List α) (hnnil : L ≠ []) :
