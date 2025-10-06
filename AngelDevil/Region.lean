@@ -1,5 +1,3 @@
-import Mathlib.Tactic.Linarith.Frontend
-import Mathlib.Data.Int.Basic
 import Mathlib.Data.List.Basic
 import AngelDevil.Util
 import AngelDevil.Dupes
@@ -53,6 +51,26 @@ lemma right_left (a : Int × Int) : right (left a) = a := by
 
 def adjacent (a b : Int × Int) : Prop :=
   up a = b ∨ down a = b ∨ left a = b ∨ right a = b
+
+lemma up_adjacent (a : Int × Int) :
+  adjacent (up a) a := by
+  unfold adjacent; right; left
+  rw [down_up]
+
+lemma down_adjacent (a : Int × Int) :
+  adjacent (down a) a := by
+  unfold adjacent; left
+  rw [up_down]
+
+lemma right_adjacent (a : Int × Int) :
+  adjacent (right a) a := by
+  unfold adjacent; right; right; left
+  rw [left_right]
+
+lemma left_adjacent (a : Int × Int) :
+  adjacent (left a) a := by
+  unfold adjacent; right; right; right
+  rw [right_left]
 
 -- 'a' is adjacent to 'b' if-and-only-if 'b' is adjacent to 'a'
 lemma adjacent_comm (a b : Int × Int) :
@@ -117,6 +135,28 @@ def path_extend (P : Path) (hnnil : P.route ≠ [])
       rw [List.getElem_cons_succ, List.getElem_cons_succ]
       rw [List.length_cons, Nat.add_one_sub_one] at ilt
       exact P.hadj i (Nat.lt_sub_of_add_lt ilt)
+
+lemma path_extend_ne_nil (P : Path) (hnnil : P.route ≠ [])
+  (c : Int × Int) (hadj : adjacent c (P.route.head hnnil)) :
+  (path_extend P hnnil c hadj).route ≠ [] := by
+  unfold path_extend; dsimp
+  exact List.cons_ne_nil _ _
+
+lemma path_extend_head (P : Path) (hnnil : P.route ≠ [])
+  (c : Int × Int) (hadj : adjacent c (P.route.head hnnil)) :
+  (path_extend P hnnil c hadj).route.head (path_extend_ne_nil _ _ _ _) = c := by
+  unfold path_extend; dsimp
+
+lemma path_extend_getLast (P : Path) (hnnil : P.route ≠ [])
+  (c : Int × Int) (hadj : adjacent c (P.route.head hnnil)) :
+  (path_extend P hnnil c hadj).route.getLast (path_extend_ne_nil _ _ _ _) =
+  P.route.getLast hnnil := by
+  unfold path_extend; dsimp
+  rw [List.getLast_cons hnnil]
+
+lemma path_extend_route (P : Path) (hnnil : P.route ≠ [])
+  (c : Int × Int) (hadj : adjacent c (P.route.head hnnil)) :
+  (path_extend P hnnil c hadj).route = c :: P.route := rfl
 
 -- Split an existing path and keep the latter section
 def path_split_right (P : Path) (i : Nat) : Path where
@@ -227,6 +267,10 @@ structure RegionBuilder where
     ∀ a, path_exists a start (region ++ pending ++ unvisited) →
     a ∈ (region ++ pending) ∨
     ∃ b ∈ pending, path_exists b a (pending ++ unvisited)
+  -- For every cell in the region, there is a path from that
+  -- cell to the starting cell.
+  hpath' :
+    ∀ a ∈ region ++ pending, path_exists a start (region ++ pending)
 
 def region_builder_all_cells (RB : RegionBuilder) : List (Int × Int) :=
   RB.region ++ RB.pending ++ RB.unvisited
@@ -280,17 +324,41 @@ def region_builder_init (L : List (Int × Int)) (_start : (Int × Int)) : Region
     right
     use _start, List.mem_singleton_self _
     rwa [path_exists_comm]
+  hpath' := by
+    rw [List.nil_append]
+    intro a amem
+    use path_mk_singleton _start
+    rw [path_mk_singleton_route]
+    use List.cons_ne_nil _start [], fun _ hmem ↦ hmem
+    constructor
+    · exact Eq.trans List.head_singleton (List.mem_singleton.mp amem).symm
+    · exact List.getLast_singleton _
 
-lemma region_builder_init_subset_all_cells (L : List (Int × Int)) (start : (Int × Int)) :
-  L ⊆ region_builder_all_cells (region_builder_init L start) := by
+-- TODO: Ideally we would replace this with List.Perm,
+-- but there doesn't seem to actually be a theorem for 'perm'
+-- that matches this definition.
+def list_mem_iff {α : Type} (L₁ L₂ : List α) : Prop :=
+  ∀ a : α, a ∈ L₁ ↔ a ∈ L₂
+
+-- Cells will be in 'region_builder_init' if-and-only-if they are in the original list.
+lemma region_builder_init_all_cells_mem_iff
+  (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L) :
+  list_mem_iff L (region_builder_all_cells (region_builder_init L start)) := by
+  intro c
   unfold region_builder_init region_builder_all_cells; dsimp
-  intro c cmem
-  by_cases cs : c = start
-  · subst cs
-    exact List.mem_cons_self
-  rename' cs => cns; push_neg at cns
-  apply List.mem_cons_of_mem _ ((List.mem_erase_of_ne cns).mpr _)
-  exact (list_rm_dupes_mem_iff _ _).mpr cmem
+  constructor
+  · intro cmem
+    by_cases cs : c = start
+    · subst cs
+      exact List.mem_cons_self
+    rename' cs => cns; push_neg at cns
+    apply List.mem_cons_of_mem _ ((List.mem_erase_of_ne cns).mpr _)
+    exact (list_rm_dupes_mem_iff _ _).mpr cmem
+  · intro cmem
+    rcases List.mem_cons.mp cmem with lhs | rhs
+    · subst lhs
+      assumption
+    · exact (list_rm_dupes_mem_iff L c).mp (List.mem_of_mem_erase rhs)
 
 -- 'start' in 'region_builder_init' is as given
 lemma region_builder_init_start (L : List (Int × Int)) (start : (Int × Int)) :
@@ -322,8 +390,9 @@ lemma list_mem_append_move_left_iff {α : Type} [BEq α] [LawfulBEq α]
     · exact List.mem_append_right _ (List.mem_of_mem_erase rhs)
 
 -- Try moving a cell from 'unvisited' to 'pending'
-def region_builder_try_add_cell (RB : RegionBuilder) (c : Int × Int) : RegionBuilder :=
-  if hmem : c ∈ RB.unvisited then RegionBuilder.mk
+def region_builder_try_add_cell (RB : RegionBuilder) (a c : Int × Int)
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) : RegionBuilder :=
+  if cmem : c ∈ RB.unvisited then RegionBuilder.mk
     RB.start
     RB.region
     (RB.pending ++ [c])
@@ -337,7 +406,7 @@ def region_builder_try_add_cell (RB : RegionBuilder) (c : Int × Int) : RegionBu
     (by
       apply (list_nodupes_append_singleton_iff _ _).mpr
       exact ⟨
-        fun hmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨hmem', hmem⟩,
+        fun cmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨cmem', cmem⟩,
         RB.hpending_nd⟩
     )
     (list_nodupes_erase_of_nodupes _ RB.hunvisited_nd _)
@@ -349,12 +418,12 @@ def region_builder_try_add_cell (RB : RegionBuilder) (c : Int × Int) : RegionBu
         · apply h₂
           apply (list_nodupes_append_singleton_iff _ _).mpr
           constructor
-          · exact fun hmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨hmem', hmem⟩
+          · exact fun cmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨cmem', cmem⟩
           · exact RB.hpending_nd
         · rcases h₂ with ⟨d, meml, memr⟩
           rcases List.mem_append.mp memr with lhs | rhs
           · exact region_builder_notmem_region_and_pending RB d ⟨meml, lhs⟩
-          · exact region_builder_notmem_region_and_unvisited RB c ⟨(List.mem_singleton.mp rhs) ▸ meml, hmem⟩
+          · exact region_builder_notmem_region_and_unvisited RB c ⟨(List.mem_singleton.mp rhs) ▸ meml, cmem⟩
       · exact h₁ (list_nodupes_erase_of_nodupes _ (RB.hunvisited_nd) _)
       · rcases h₁ with ⟨d, meml, memr⟩
         have memr' : d ∈ RB.unvisited := List.erase_subset memr
@@ -376,13 +445,13 @@ def region_builder_try_add_cell (RB : RegionBuilder) (c : Int × Int) : RegionBu
       have hss₁₂ : L₁ ⊆ L₂ := by
         unfold L₁ L₂
         intro x xmem
-        exact (list_mem_append_move_left_iff _ hmem x).mp xmem
+        exact (list_mem_append_move_left_iff _ cmem x).mp xmem
       have hss₂₁ : L₂' ⊆ L₁' := by
         unfold L₁' L₂' L₁ L₂
         intro x xmem
         rcases List.mem_append.mp xmem with lhs | rhs
         · exact List.mem_append_left _ lhs
-        · exact List.mem_append_right _ ((list_mem_append_move_left_iff _ hmem x).mpr rhs)
+        · exact List.mem_append_right _ ((list_mem_append_move_left_iff _ cmem x).mpr rhs)
       -- Now we can use 'RB.hpath' to split into cases
       rw [List.append_assoc] at pathex₀
       have pathex₁ := path_exists_subset a RB.start L₂' L₁' hss₂₁ pathex₀
@@ -397,12 +466,45 @@ def region_builder_try_add_cell (RB : RegionBuilder) (c : Int × Int) : RegionBu
         rcases rhs with ⟨b, bmem, pathex₂⟩
         exact ⟨b, List.mem_append_left _ bmem, path_exists_subset b a _ L₂ hss₁₂ pathex₂⟩
     )
+    (by
+      intro x xmem
+      -- We need this subset property to apply 'path_exists_subset' below
+      have hss : RB.region ++ RB.pending ⊆ RB.region ++ (RB.pending ++ [c]) := by
+        intro y ymem
+        rw [← List.append_assoc]
+        exact List.mem_append_left _ ymem
+      by_cases xnec : x ≠ c
+      · -- IF x ≠ c, we can show that the old path still works
+        have xmem' : x ∈ RB.region ++ RB.pending := by
+          rw [← List.append_assoc] at xmem
+          rcases List.mem_append.mp xmem with lhs | rhs
+          · assumption
+          · absurd xnec
+            exact List.mem_singleton.mp rhs
+        exact path_exists_subset x RB.start _ _ hss (RB.hpath' x xmem')
+      rename' xnec => xc; push_neg at xc
+      subst xc
+      -- Get the path which connects 'a' to 'start'
+      rcases path_exists_subset a RB.start _ _ hss (RB.hpath' a amem) with ⟨P, hnnil, hpss, hhead, hlast⟩
+      -- Add 'x' to 'P' to get a path from 'x' to 'start'
+      let P' := path_extend P hnnil x (hhead ▸ hadj)
+      use P', by apply path_extend_ne_nil
+      -- Resolve the 2nd and 3rd requirements, leaving the subset condition to prove
+      apply And.intro _ (And.intro (by rw [path_extend_head]) (by rwa [path_extend_getLast P hnnil]))
+      rw [path_extend_route]
+      intro y ymem
+      rcases List.mem_cons.mp ymem with lhs | rhs
+      · subst lhs
+        assumption
+      · exact hpss rhs
+    )
   else RB
 
 -- Moving a cell from 'unvisited' to 'pending' will always result in
 -- and non-empty pending list if the original pending list was non-empty
-lemma region_builder_try_add_cell_pending_ne_nil (RB : RegionBuilder) (c : Int × Int) :
-  RB.pending ≠ [] → (region_builder_try_add_cell RB c).pending ≠ [] := by
+lemma region_builder_try_add_cell_pending_ne_nil (RB : RegionBuilder) (a c : Int × Int)
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
+  RB.pending ≠ [] → (region_builder_try_add_cell RB a c hadj amem).pending ≠ [] := by
   unfold region_builder_try_add_cell
   intro h
   split_ifs with h'
@@ -411,9 +513,10 @@ lemma region_builder_try_add_cell_pending_ne_nil (RB : RegionBuilder) (c : Int �
 
 -- Calling 'region_builder_try_add_cell' on a RegionBuilder has no effect
 -- on the sum of the lengths of the 'pending' and 'unvisited' lists
-lemma region_builder_try_add_cell_length_invariant (RB : RegionBuilder) (c : Int × Int) :
-  (region_builder_try_add_cell RB c).pending.length +
-  (region_builder_try_add_cell RB c).unvisited.length =
+lemma region_builder_try_add_cell_length_invariant (RB : RegionBuilder) (a c : Int × Int)
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
+  (region_builder_try_add_cell RB a c hadj amem).pending.length +
+  (region_builder_try_add_cell RB a c hadj amem).unvisited.length =
   RB.pending.length + RB.unvisited.length := by
   unfold region_builder_try_add_cell
   split_ifs with h
@@ -425,17 +528,19 @@ lemma region_builder_try_add_cell_length_invariant (RB : RegionBuilder) (c : Int
 
 -- Any member of the partial region in 'RB' will still be present
 -- after calling region_builder_try_add_cell
-lemma region_builder_mem_try_add_cell_of_mem
+-- TODO: This doesn't seem to be used and is currently broken. Delete.
+/-lemma region_builder_mem_try_add_cell_of_mem
   (RB : RegionBuilder) (oldc newc : Int × Int) (oldcmem : oldc ∈ RB.region) :
   oldc ∈ (region_builder_try_add_cell RB newc).region := by
   unfold region_builder_try_add_cell
   split_ifs with h
   · dsimp; assumption
-  · assumption
+  · assumption-/
 
 -- Calling 'region_builder_try_add_cell' has no effect on 'start'
-lemma region_builder_try_add_cell_start (RB : RegionBuilder) (c : Int × Int) :
-  (region_builder_try_add_cell RB c).start = RB.start := by
+lemma region_builder_try_add_cell_start (RB : RegionBuilder) (a c : Int × Int)
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
+  (region_builder_try_add_cell RB a c hadj amem).start = RB.start := by
   unfold region_builder_try_add_cell
   split_ifs with h
   · dsimp
@@ -443,8 +548,9 @@ lemma region_builder_try_add_cell_start (RB : RegionBuilder) (c : Int × Int) :
 
 -- Proves the conditions under which a cell will not be an element of 'unvisited'
 -- after calling 'region_builder_try_add_cell'
-lemma region_builder_try_add_cell_not_mem_unvisited (RB : RegionBuilder) (c : Int × Int) :
-  ∀ a, a = c ∨ a ∉ RB.unvisited → a ∉ (region_builder_try_add_cell RB c).unvisited := by
+lemma region_builder_try_add_cell_not_mem_unvisited (RB : RegionBuilder) (a c : Int × Int)
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
+  ∀ x, x = c ∨ x ∉ RB.unvisited → x ∉ (region_builder_try_add_cell RB a c hadj amem).unvisited := by
   unfold region_builder_try_add_cell
   intro a h
   rcases h with lhs | rhs
@@ -461,36 +567,53 @@ lemma region_builder_try_add_cell_not_mem_unvisited (RB : RegionBuilder) (c : In
 
 -- If the pending list is non-nil, adding more cells to it will not change the head
 lemma region_builder_try_add_cell_pending_head
-  (RB : RegionBuilder) (c : Int × Int) (hnnil : RB.pending ≠ []) :
-  (region_builder_try_add_cell RB c).pending.head
-  (region_builder_try_add_cell_pending_ne_nil _ _ hnnil) = RB.pending.head hnnil := by
+  (RB : RegionBuilder) (a c : Int × Int) (hnnil : RB.pending ≠ [])
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
+  (region_builder_try_add_cell RB a c hadj amem).pending.head
+  (region_builder_try_add_cell_pending_ne_nil RB a c hadj amem hnnil) = RB.pending.head hnnil := by
   unfold region_builder_try_add_cell
   split_ifs with h
   · exact List.head_append_left hnnil
   · rfl
 
--- All cells in the region builder prior to call 'try_add_cells' will still be in the region builder after.
-lemma region_builder_try_add_cell_subset_all_cells
-  (RB : RegionBuilder) (c : Int × Int) :
-  region_builder_all_cells RB ⊆ region_builder_all_cells (region_builder_try_add_cell RB c) := by
-  unfold region_builder_try_add_cell
-  split_ifs with h
-  · unfold region_builder_all_cells; dsimp
-    intro x xmem
-    rcases List.mem_append.mp xmem with lhs | rhs
-    · rcases List.mem_append.mp lhs with lhs' | rhs'
-      · exact List.mem_append_left _ (List.mem_append_left _ lhs')
-      · exact List.mem_append_left _ (List.mem_append_right _ (List.mem_append_left _ rhs'))
-    · by_cases xc : x = c
-      · subst xc
-        apply List.mem_append_left _ (List.mem_append_right _ _)
-        exact List.mem_append_right _ (List.mem_singleton_self _)
-      · rename' xc => xnc; push_neg at xnc
-        apply List.mem_append_right
-        exact (List.mem_erase_of_ne xnc).mpr rhs
-  · unfold region_builder_all_cells
-    intro x xmem
-    assumption
+-- Cells will be in 'try_add_cell' if-and-only-if they are in the original region builder
+lemma region_builder_try_add_cell_all_cells_mem_iff
+  (RB : RegionBuilder) (a c : Int × Int)
+  (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
+  list_mem_iff (region_builder_all_cells RB)
+  (region_builder_all_cells (region_builder_try_add_cell RB a c hadj amem)) := by
+  unfold region_builder_try_add_cell region_builder_all_cells
+  intro x
+  constructor
+  · split_ifs with h
+    · dsimp
+      intro xmem
+      rcases List.mem_append.mp xmem with lhs | rhs
+      · rcases List.mem_append.mp lhs with lhs' | rhs'
+        · exact List.mem_append_left _ (List.mem_append_left _ lhs')
+        · exact List.mem_append_left _ (List.mem_append_right _ (List.mem_append_left _ rhs'))
+      · by_cases xc : x = c
+        · subst xc
+          apply List.mem_append_left _ (List.mem_append_right _ _)
+          exact List.mem_append_right _ (List.mem_singleton_self _)
+        · rename' xc => xnc; push_neg at xnc
+          apply List.mem_append_right
+          exact (List.mem_erase_of_ne xnc).mpr rhs
+    · intro xmem
+      assumption
+  · split_ifs with h
+    · dsimp
+      intro xmem
+      rcases List.mem_append.mp xmem with lhs | rhs
+      · rcases List.mem_append.mp lhs with lhs' | rhs'
+        · exact List.mem_append_left _ (List.mem_append_left _ lhs')
+        · rcases List.mem_append.mp rhs' with lhs'' | rhs''
+          · exact List.mem_append_left _ (List.mem_append_right _ lhs'')
+          · have xc : x = c := List.mem_singleton.mp rhs''
+            subst xc
+            exact List.mem_append_right _ h
+      · exact List.mem_append_right _ (List.mem_of_mem_erase rhs)
+    · exact id
 
 -- Missing list theorem
 lemma list_mem_tail_of_mem_of_ne_head {α : Type} (L : List α) (hnnil : L ≠ []) :
@@ -680,6 +803,26 @@ def region_builder_add_pending_of_ne_nil (RB : RegionBuilder) (hnnil : RB.pendin
         contrapose! hhnotin
         rwa [← hhnotin]
       · exact List.mem_append_right _ rhs
+  hpath' := by
+    intro a amem
+    have amem' : a ∈ RB.region ++ RB.pending := by
+      rcases List.mem_cons.mp amem with lhs | rhs
+      · rw [lhs]
+        exact List.mem_append_right _ (List.head_mem hnnil)
+      · rcases List.mem_append.mp rhs with lhs' | rhs'
+        · exact List.mem_append_left _ lhs'
+        · exact List.mem_append_right _ (List.mem_of_mem_tail rhs')
+    -- Use 'path_exists_subset' to apply the existing path
+    apply path_exists_subset _ _ _ _ _ (RB.hpath' a amem')
+    -- This leaves just the subset property to prove
+    intro x xmem
+    rcases List.mem_append.mp xmem with lhs | rhs
+    · exact List.mem_cons_of_mem _ (List.mem_append_left _ lhs)
+    · rw [← List.head_cons_tail _ hnnil] at rhs
+      rcases List.mem_cons.mp rhs with lhs' | rhs'
+      · rw [lhs']
+        exact List.mem_append_left _ List.mem_cons_self
+      · exact List.mem_append_right _ rhs'
 
 -- The length of 'pending' + 'unvisted' after moving the first
 -- pending cell to 'region' will be one less than it was previously.
@@ -707,23 +850,35 @@ lemma region_builder_add_pending_start (RB : RegionBuilder) (hnnil : RB.pending 
   (region_builder_add_pending_of_ne_nil RB hnnil hnadj).start = RB.start := by
   unfold region_builder_add_pending_of_ne_nil; dsimp
 
--- All cells in the region builder prior to call 'add_pending' will still be in the region builder after.
-lemma region_builder_add_pending_subset_all_cells (RB : RegionBuilder) (hnnil : RB.pending ≠ [])
+-- Cells will be in 'add_pending' if-and-only-if they are in the original region builder.
+lemma region_builder_add_pending_all_cells_mem_iff (RB : RegionBuilder) (hnnil : RB.pending ≠ [])
   (hnadj : ∀ c ∈ RB.unvisited, ¬adjacent c (RB.pending.head hnnil)) :
-  region_builder_all_cells RB ⊆
-  region_builder_all_cells (region_builder_add_pending_of_ne_nil RB hnnil hnadj) := by
+  list_mem_iff (region_builder_all_cells RB)
+  (region_builder_all_cells (region_builder_add_pending_of_ne_nil RB hnnil hnadj)) := by
   unfold region_builder_add_pending_of_ne_nil region_builder_all_cells; dsimp
-  intro x xmem
-  rcases List.mem_append.mp xmem with lhs | rhs
-  · rcases List.mem_append.mp lhs with lhs' | rhs'
-    · exact List.mem_cons_of_mem _ (List.mem_append_left _ (List.mem_append_left _ lhs'))
-    · by_cases xh : x = RB.pending.head hnnil
-      · subst xh
-        exact List.mem_cons_self
-      · rename' xh => xnh; push_neg at xnh
-        apply List.mem_cons_of_mem _ (List.mem_append_left _ (List.mem_append_right _ _))
-        exact list_mem_tail_of_mem_of_ne_head _ hnnil x rhs' xnh
-  · exact List.mem_cons_of_mem _ (List.mem_append_right _ rhs)
+  intro x
+  constructor
+  · intro xmem
+    rcases List.mem_append.mp xmem with lhs | rhs
+    · rcases List.mem_append.mp lhs with lhs' | rhs'
+      · exact List.mem_cons_of_mem _ (List.mem_append_left _ (List.mem_append_left _ lhs'))
+      · by_cases xh : x = RB.pending.head hnnil
+        · subst xh
+          exact List.mem_cons_self
+        · rename' xh => xnh; push_neg at xnh
+          apply List.mem_cons_of_mem _ (List.mem_append_left _ (List.mem_append_right _ _))
+          exact list_mem_tail_of_mem_of_ne_head _ hnnil x rhs' xnh
+    · exact List.mem_cons_of_mem _ (List.mem_append_right _ rhs)
+  · intro xmem
+    rcases List.mem_cons.mp xmem with lhs | rhs
+    · apply List.mem_append_left _ (List.mem_append_right _ _)
+      rw [lhs]
+      exact List.head_mem hnnil
+    · rcases List.mem_append.mp rhs with lhs' | rhs'
+      · rcases List.mem_append.mp lhs' with lhs'' | rhs''
+        · exact List.mem_append_left _ (List.mem_append_left _ lhs'')
+        · exact List.mem_append_left _ (List.mem_append_right _ (List.mem_of_mem_tail rhs''))
+      · exact List.mem_append_right _ rhs'
 
 -- Main processing step of the 'make_region' algorithm.
 -- This moves the head of the 'pending' list into the region and
@@ -737,21 +892,41 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
     region_builder_try_add_cell (
     region_builder_try_add_cell (
     region_builder_try_add_cell RB
-      ((RB.pending.head hnnil).1 + 1, (RB.pending.head hnnil).2))
-      ((RB.pending.head hnnil).1 - 1, (RB.pending.head hnnil).2))
-      ((RB.pending.head hnnil).1, (RB.pending.head hnnil).2 + 1))
-      ((RB.pending.head hnnil).1, (RB.pending.head hnnil).2 - 1))
+      (RB.pending.head hnnil) ((RB.pending.head hnnil).1 + 1, (RB.pending.head hnnil).2)
+        (right_adjacent _) (List.mem_append_right _ (List.head_mem hnnil)))
+      (RB.pending.head hnnil) ((RB.pending.head hnnil).1 - 1, (RB.pending.head hnnil).2)
+        (left_adjacent _) (by
+          apply List.mem_append_right
+          convert List.head_mem _ using 1
+          · rw [region_builder_try_add_cell_pending_head]
+          apply region_builder_try_add_cell_pending_ne_nil
+          assumption
+        ))
+      (RB.pending.head hnnil) ((RB.pending.head hnnil).1, (RB.pending.head hnnil).2 + 1)
+        (up_adjacent _) (by
+          apply List.mem_append_right
+          convert List.head_mem _ using 1
+          · repeat rw [region_builder_try_add_cell_pending_head]
+          · repeat apply region_builder_try_add_cell_pending_ne_nil
+            assumption
+        ))
+      (RB.pending.head hnnil) ((RB.pending.head hnnil).1, (RB.pending.head hnnil).2 - 1)
+        (down_adjacent _) (by
+          apply List.mem_append_right
+          convert List.head_mem _ using 1
+          · repeat rw [region_builder_try_add_cell_pending_head]
+          · repeat apply region_builder_try_add_cell_pending_ne_nil
+            assumption
+        ))
     (by
-      apply region_builder_try_add_cell_pending_ne_nil
-      apply region_builder_try_add_cell_pending_ne_nil
-      apply region_builder_try_add_cell_pending_ne_nil
-      exact region_builder_try_add_cell_pending_ne_nil _ _ hnnil)
+      repeat apply region_builder_try_add_cell_pending_ne_nil
+      assumption)
     (by
       intro c cadj
       contrapose! cadj
       -- Use the magic of 'repeat' to show that 'c' must be
       -- adjacent to the original RB.pending.head
-      repeat rw [region_builder_try_add_cell_pending_head _ _ (by
+      repeat rw [region_builder_try_add_cell_pending_head _ _ _ (by
         repeat apply region_builder_try_add_cell_pending_ne_nil
         assumption)] at cadj
       rw [adjacent_comm] at cadj
@@ -780,14 +955,13 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
     ))
 
 -- All cells in the region builder prior to call 'make_region_step' will still be in the region builder after.
-lemma make_region_step_subset_all_cells (RB : RegionBuilder) (hnnil : RB.pending ≠ []) :
-  region_builder_all_cells RB ⊆
-  region_builder_all_cells (make_region_step RB hnnil) := by
+lemma make_region_step_all_cells_mem_iff (RB : RegionBuilder) (hnnil : RB.pending ≠ []) :
+  list_mem_iff (region_builder_all_cells RB)
+  (region_builder_all_cells (make_region_step RB hnnil)) := by
+  intro x
   unfold make_region_step
-  intro x xmem
-  apply region_builder_add_pending_subset_all_cells
-  repeat apply region_builder_try_add_cell_subset_all_cells
-  assumption
+  rw [← region_builder_add_pending_all_cells_mem_iff]
+  repeat rw [← region_builder_try_add_cell_all_cells_mem_iff]
 
 -- Reusable termination proof for 'make_region' and related theorems
 lemma make_region_terminates (RB : RegionBuilder) (hnnil : RB.pending ≠ []) :
@@ -837,7 +1011,8 @@ decreasing_by
 
 -- Any member of the partial region in 'RB' will still be present
 -- after calling make_region_impl
-lemma make_region_impl_mem_of_mem
+-- TODO: We dont' seem to actually use this and also it's broken. Delete it.
+/-lemma make_region_impl_mem_of_mem
   (RB : RegionBuilder) (c : Int × Int) (cmem : c ∈ RB.region) :
   c ∈ (make_region_impl RB).region := by
   unfold make_region_impl
@@ -850,21 +1025,24 @@ lemma make_region_impl_mem_of_mem
   assumption
 termination_by RB.pending.length + RB.unvisited.length
 decreasing_by
-  exact make_region_terminates _ _
+  exact make_region_terminates _ _-/
 
 -- All cells in the region builder prior to call 'make_region_impl' will still be in the region builder after.
-lemma make_region_impl_subset_all_cells (RB : RegionBuilder) :
-  region_builder_all_cells RB ⊆ region_builder_all_cells (make_region_impl RB) := by
+lemma make_region_impl_all_cells_mem_iff (RB : RegionBuilder) :
+  list_mem_iff (region_builder_all_cells RB)
+  (region_builder_all_cells (make_region_impl RB)) := by
   unfold make_region_impl
-  intro x xmem
-  split_ifs with h
-  · assumption
-  · apply make_region_impl_subset_all_cells
-    apply make_region_step_subset_all_cells
-    assumption
+  intro x
+  constructor
+  repeat
+  · split_ifs with h
+    · exact id
+    · rw [← make_region_impl_all_cells_mem_iff]
+      rw [← make_region_step_all_cells_mem_iff]
+      exact id
 termination_by RB.pending.length + RB.unvisited.length
 decreasing_by
-  exact make_region_terminates _ _
+  repeat exact make_region_terminates _ _
 
 -- Find the region of orthogonally connected cells in 'L' which contains 'start'
 -- Note that if start ∉ L it will return a 1-cell region with just 'start'.
@@ -902,24 +1080,38 @@ lemma region_ne_nil (L : List (Int × Int)) (start : (Int × Int)) :
   Region L start ≠ [] :=
   List.ne_nil_of_mem (region_start_mem L start)
 
-lemma region_mem_of_path_exists (L : List (Int × Int)) (start : (Int × Int)) :
-  ∀ a, (path_exists a start L) → a ∈ Region L start := by
+-- A cell is an element of a region if and only if there is
+-- a path from the cell to the start of that region.
+lemma region_mem_iff (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L) :
+  ∀ a, (path_exists a start L) ↔ a ∈ Region L start := by
   unfold Region make_region
-  intro a pathex
-  have hss : L ⊆ region_builder_all_cells (make_region_impl (region_builder_init L start)) := by
-    intro x xmem
-    apply make_region_impl_subset_all_cells
-    exact region_builder_init_subset_all_cells _ _ xmem
-  have pathex' := path_exists_subset a start _ _ hss pathex
-  have hpath := (make_region_impl (region_builder_init L start)).hpath a
-  rw [make_region_impl_start, region_builder_init_start] at hpath
-  rcases hpath pathex' with lhs | rhs
-  · rcases List.mem_append.mp lhs with lhs' | rhs'
-    · assumption
-    · absurd rhs'
+  intro a
+  constructor
+  · intro pathex
+    have hss : L ⊆ region_builder_all_cells (make_region_impl (region_builder_init L start)) := by
+      intro x xmem
+      rw [← make_region_impl_all_cells_mem_iff]
+      rwa [← region_builder_init_all_cells_mem_iff]
+      assumption
+    have pathex' := path_exists_subset a start _ _ hss pathex
+    have hpath := (make_region_impl (region_builder_init L start)).hpath a
+    rw [make_region_impl_start, region_builder_init_start] at hpath
+    rcases hpath pathex' with lhs | rhs
+    · rcases List.mem_append.mp lhs with lhs' | rhs'
+      · assumption
+      · absurd rhs'
+        convert List.not_mem_nil
+        exact make_region_pending_nil _ _
+    · rcases rhs with ⟨b, bmem, _⟩
+      absurd bmem
       convert List.not_mem_nil
       exact make_region_pending_nil _ _
-  · rcases rhs with ⟨b, bmem, _⟩
-    absurd bmem
-    convert List.not_mem_nil
-    exact make_region_pending_nil _ _
+  · intro amem
+    have hpath :=
+      (make_region_impl (region_builder_init L start)).hpath' a (List.mem_append.mpr (Or.inl amem))
+    rw [make_region_impl_start, region_builder_init_start] at hpath
+    apply path_exists_subset _ _ _ _ _ hpath
+    intro x xmem
+    rw [region_builder_init_all_cells_mem_iff _ start smem]
+    rw [make_region_impl_all_cells_mem_iff]
+    exact List.mem_append.mpr (Or.inl xmem)
