@@ -9,6 +9,8 @@ set_option linter.style.longLine false
 
 -- Note that List.dedup should do the same thing, but the implementation
 -- is complicated and there seem to be no existing theorems which reference it.
+-- TODO: There *are* theorems on 'dedup'. You just have to import
+-- Mathlib.Data.List.Dedup
 def list_rm_dupes {α : Type} [DecidableEq α] (L : List α) : List α :=
   match L with
   | []    => []
@@ -274,3 +276,16 @@ lemma list_rm_dupes_nodupes {α : Type} [DecidableEq α] (L : List α) :
     have ipredlt := Nat.add_one_lt_add_one_iff.mp ilt
     have jpredlt := Nat.add_one_lt_add_one_iff.mp jlt
     exact list_rm_dupes_nodupes xs ipred jpred ipredlt jpredlt h'
+
+lemma list_rm_dupes_length_le {α : Type} [DecidableEq α] (L : List α) :
+  (list_rm_dupes L).length ≤ L.length := by
+  unfold list_rm_dupes
+  match L with
+  | []    =>
+    simp
+  | x::xs =>
+    simp
+    split_ifs with h
+    · exact le_trans (list_rm_dupes_length_le xs) (Nat.le_add_right _ _)
+    · rw [List.length_cons]
+      exact Nat.add_le_add_right (list_rm_dupes_length_le xs) _
