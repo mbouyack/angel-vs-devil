@@ -1,4 +1,6 @@
 import Mathlib.Data.List.Basic
+import Mathlib.Data.Finset.Basic
+import Mathlib.Data.Finset.Card
 import AngelDevil.Util
 import AngelDevil.Dupes
 
@@ -250,8 +252,12 @@ structure RegionBuilder where
   region : List (Int × Int)
   pending : List (Int × Int)
   unvisited : List (Int × Int)
-  -- 'start' is always in the region or about to be added to the region
-  hstart : start ∈ region ++ pending
+  -- 'start' is at the end of 'region' or is the head of 'pending'
+  -- The statement is slightly awkward due to the conversion from '∧' to '→'
+  hstart :
+    if hnnil : region = [] then
+    ¬((hnnil : pending ≠ []) → start ≠ pending.head hnnil) else
+    start = region.getLast hnnil
   -- 'region' has no duplicate elements
   hregion_nd : list_nodupes region
   -- 'pending' has no duplicate elements
@@ -304,7 +310,11 @@ def region_builder_init (L : List (Int × Int)) (_start : (Int × Int)) : Region
   start := _start
   region := []
   pending := [_start]
-  hstart := List.mem_append.mpr (Or.inr (List.mem_singleton_self _))
+  hstart := by
+    split_ifs with h
+    · push_neg
+      exact ⟨(List.cons_ne_nil _ _), List.head_singleton.symm⟩
+    · exact False.elim (h rfl)
   unvisited := (list_rm_dupes L).erase _start
   hregion_nd := list_nodupes_nil
   hpending_nd := list_nodupes_singleton _
@@ -398,9 +408,23 @@ def region_builder_try_add_cell (RB : RegionBuilder) (a c : Int × Int)
     (RB.pending ++ [c])
     (RB.unvisited.erase c)
     (by
-      rcases List.mem_append.mp RB.hstart with lhs | rhs
-      · exact List.mem_append_left _ lhs
-      · exact List.mem_append_right _ (List.mem_append_left _ rhs)
+      split_ifs with h
+      · push_neg
+        use (by
+          apply List.ne_nil_of_length_pos
+          rw [List.length_append, List.length_singleton]
+          exact Nat.add_one_pos _
+        )
+        rw [h, List.nil_append] at amem
+        have hnnil := List.ne_nil_of_mem amem
+        rw [List.head_append_left hnnil]
+        have := RB.hstart
+        rw [dif_pos h] at this
+        push_neg at this
+        rcases this with ⟨_, h'⟩
+        assumption
+      · have := RB.hstart
+        rwa [dif_neg h] at this
     )
     RB.hregion_nd
     (by
@@ -526,17 +550,6 @@ lemma region_builder_try_add_cell_length_invariant (RB : RegionBuilder) (a c : I
     rw [Nat.sub_one_add_one (Nat.ne_zero_of_lt (List.length_pos_of_mem h))]
   · rfl
 
--- Any member of the partial region in 'RB' will still be present
--- after calling region_builder_try_add_cell
--- TODO: This doesn't seem to be used and is currently broken. Delete.
-/-lemma region_builder_mem_try_add_cell_of_mem
-  (RB : RegionBuilder) (oldc newc : Int × Int) (oldcmem : oldc ∈ RB.region) :
-  oldc ∈ (region_builder_try_add_cell RB newc).region := by
-  unfold region_builder_try_add_cell
-  split_ifs with h
-  · dsimp; assumption
-  · assumption-/
-
 -- Calling 'region_builder_try_add_cell' has no effect on 'start'
 lemma region_builder_try_add_cell_start (RB : RegionBuilder) (a c : Int × Int)
   (hadj : adjacent c a) (amem : a ∈ RB.region ++ RB.pending) :
@@ -632,11 +645,17 @@ def region_builder_add_pending_of_ne_nil (RB : RegionBuilder) (hnnil : RB.pendin
   pending := RB.pending.tail
   unvisited := RB.unvisited
   hstart := by
-    rcases List.mem_append.mp RB.hstart with lhs | rhs
-    · exact List.mem_append_left _ (List.mem_cons.mpr (Or.inr lhs))
-    · rcases List.mem_cons.mp ((List.head_cons_tail _ hnnil) ▸ rhs) with lhs' | rhs'
-      · exact List.mem_cons.mpr (Or.inl lhs')
-      · exact List.mem_cons.mpr (Or.inr (List.mem_append_right _ rhs'))
+    rw [dif_neg (List.cons_ne_nil _ _)]
+    by_cases hrnil : RB.region = []
+    · rw [hrnil, List.getLast_singleton]
+      have := RB.hstart
+      rw [dif_pos hrnil] at this; push_neg at this
+      rcases this with ⟨_, h'⟩
+      assumption
+    · rename' hrnil => hnnil'; push_neg at hnnil'
+      rw [List.getLast_cons hnnil']
+      -- Why does this have to be 'convert' rather than 'exact'?
+      convert (dif_neg hnnil') ▸ RB.hstart
   hregion_nd := by
     apply (list_nodupes_cons_iff _ _).mpr
     constructor
@@ -1009,24 +1028,6 @@ termination_by RB.pending.length + RB.unvisited.length
 decreasing_by
   exact make_region_terminates _ _
 
--- Any member of the partial region in 'RB' will still be present
--- after calling make_region_impl
--- TODO: We dont' seem to actually use this and also it's broken. Delete it.
-/-lemma make_region_impl_mem_of_mem
-  (RB : RegionBuilder) (c : Int × Int) (cmem : c ∈ RB.region) :
-  c ∈ (make_region_impl RB).region := by
-  unfold make_region_impl
-  split_ifs with h
-  · assumption
-  push_neg at h
-  apply make_region_impl_mem_of_mem
-  apply region_builder_mem_add_pending_of_mem
-  repeat apply region_builder_mem_try_add_cell_of_mem
-  assumption
-termination_by RB.pending.length + RB.unvisited.length
-decreasing_by
-  exact make_region_terminates _ _-/
-
 -- All cells in the region builder prior to call 'make_region_impl' will still be in the region builder after.
 lemma make_region_impl_all_cells_mem_iff (RB : RegionBuilder) :
   list_mem_iff (region_builder_all_cells RB)
@@ -1061,24 +1062,33 @@ lemma make_region_pending_nil (L : List (Int × Int)) (start : (Int × Int)) :
   unfold make_region
   exact make_region_impl_pending_nil _
 
-def Region (L : List (Int × Int)) (start : (Int × Int)) : List (Int × Int) :=
-  (make_region L start).region
+-- Define a 'Region' as the finite set of cells in the 'region' list of a 'make_region'
+-- We can perform this construction because 'region' is guaranteed to have no duplicates.
+def Region (L : List (Int × Int)) (start : (Int × Int)) : Finset (Int × Int) :=
+  Finset.mk (Multiset.ofList (make_region L start).region) (by
+    apply Multiset.nodup_iff_pairwise.mpr
+    apply (Multiset.pairwise_coe_iff_pairwise (fun _ _ h ↦ h.symm)).mpr
+    apply List.pairwise_iff_getElem.mpr
+    intro i j ilt jlt iltj
+    exact (make_region L start).hregion_nd i j iltj jlt
+  )
 
 -- The starting cell is a member of the resulting region
 lemma region_start_mem (L : List (Int × Int)) (start : (Int × Int)) :
   start ∈ Region L start := by
-  unfold Region
-  apply Or.elim (List.mem_append.mp (make_region L start).hstart)
-  · intro h
-    rwa [make_region_start] at h
-  · intro h
-    rw [make_region_pending_nil L start] at h
-    exact False.elim (List.not_mem_nil h)
+  unfold Region; simp
+  have := (make_region L start).hstart
+  split_ifs at this with h
+  · push_neg at this
+    rcases this with ⟨hnnil, _⟩
+    exact False.elim (hnnil (make_region_pending_nil L start))
+  · rw [make_region_start] at this
+    convert List.getLast_mem h
 
 -- No region is empty (since it contains at least 'start')
-lemma region_ne_nil (L : List (Int × Int)) (start : (Int × Int)) :
-  Region L start ≠ [] :=
-  List.ne_nil_of_mem (region_start_mem L start)
+lemma region_ne_empty (L : List (Int × Int)) (start : (Int × Int)) :
+  Region L start ≠ ∅ :=
+  Finset.ne_empty_of_mem (region_start_mem L start)
 
 -- A cell is an element of a region if and only if there is
 -- a path from the cell to the start of that region.
