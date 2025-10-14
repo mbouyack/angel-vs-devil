@@ -274,9 +274,13 @@ structure RegionBuilder where
     a ∈ (region ++ pending) ∨
     ∃ b ∈ pending, path_exists b a (pending ++ unvisited)
   -- For every cell in the region, there is a path from that
-  -- cell to the starting cell.
+  -- cell to the starting cell. The constraint is stated in
+  -- such a way as to exclude the last cell added to the region
+  -- from the path cells. This will be crucial for proving
+  -- the 'region_recurrence' later.
   hpath' :
-    ∀ a ∈ region ++ pending, path_exists a start (region ++ pending)
+    ∀ a ∈ region ++ pending,
+    path_exists a start (a :: (pending.reverse ++ region).tail)
 
 def region_builder_all_cells (RB : RegionBuilder) : List (Int × Int) :=
   RB.region ++ RB.pending ++ RB.unvisited
@@ -335,13 +339,13 @@ def region_builder_init (L : List (Int × Int)) (_start : (Int × Int)) : Region
     use _start, List.mem_singleton_self _
     rwa [path_exists_comm]
   hpath' := by
-    rw [List.nil_append]
-    intro a amem
-    use path_mk_singleton _start
-    rw [path_mk_singleton_route]
-    use List.cons_ne_nil _start [], fun _ hmem ↦ hmem
+    simp
+    use path_mk_singleton _start, path_mk_singleton_ne_nil _;
     constructor
-    · exact Eq.trans List.head_singleton (List.mem_singleton.mp amem).symm
+    · rw [path_mk_singleton_route]
+      exact fun _ ↦ id
+    constructor
+    · exact List.head_singleton
     · exact List.getLast_singleton _
 
 -- TODO: Ideally we would replace this with List.Perm,
@@ -491,25 +495,28 @@ def region_builder_try_add_cell (RB : RegionBuilder) (a c : Int × Int)
         exact ⟨b, List.mem_append_left _ bmem, path_exists_subset b a _ L₂ hss₁₂ pathex₂⟩
     )
     (by
-      intro x xmem
+      intro x xmem; simp
       -- We need this subset property to apply 'path_exists_subset' below
-      have hss : RB.region ++ RB.pending ⊆ RB.region ++ (RB.pending ++ [c]) := by
-        intro y ymem
-        rw [← List.append_assoc]
-        exact List.mem_append_left _ ymem
+      have hss : ∀ y,
+        (y :: (RB.pending.reverse ++ RB.region).tail) ⊆ (y :: (RB.pending.reverse ++ RB.region)) := by
+        intro y z zmem
+        rcases List.mem_cons.mp zmem with lhs | rhs
+        · subst lhs
+          exact List.mem_cons_self
+        · exact List.mem_cons_of_mem _ (List.mem_of_mem_tail rhs)
       by_cases xnec : x ≠ c
-      · -- IF x ≠ c, we can show that the old path still works
+      · -- If x ≠ c, we can show that the old path still works
         have xmem' : x ∈ RB.region ++ RB.pending := by
           rw [← List.append_assoc] at xmem
           rcases List.mem_append.mp xmem with lhs | rhs
           · assumption
           · absurd xnec
             exact List.mem_singleton.mp rhs
-        exact path_exists_subset x RB.start _ _ hss (RB.hpath' x xmem')
+        exact path_exists_subset x RB.start _ _ (hss x) (RB.hpath' x xmem')
       rename' xnec => xc; push_neg at xc
       subst xc
       -- Get the path which connects 'a' to 'start'
-      rcases path_exists_subset a RB.start _ _ hss (RB.hpath' a amem) with ⟨P, hnnil, hpss, hhead, hlast⟩
+      rcases path_exists_subset a RB.start _ _ (hss a) (RB.hpath' a amem) with ⟨P, hnnil, hpss, hhead, hlast⟩
       -- Add 'x' to 'P' to get a path from 'x' to 'start'
       let P' := path_extend P hnnil x (hhead ▸ hadj)
       use P', by apply path_extend_ne_nil
@@ -519,8 +526,14 @@ def region_builder_try_add_cell (RB : RegionBuilder) (a c : Int × Int)
       intro y ymem
       rcases List.mem_cons.mp ymem with lhs | rhs
       · subst lhs
-        assumption
-      · exact hpss rhs
+        exact List.mem_cons_self
+      · apply List.mem_cons_of_mem
+        rcases List.mem_cons.mp (hpss rhs) with lhs' | rhs'
+        · subst lhs'
+          rcases List.mem_append.mp amem with lhs'' | rhs''
+          · exact List.mem_append_right _ lhs''
+          · exact List.mem_append_left _ (List.mem_reverse.mpr rhs'')
+        · assumption
     )
   else RB
 
@@ -835,13 +848,8 @@ def region_builder_add_pending_of_ne_nil (RB : RegionBuilder) (hnnil : RB.pendin
     apply path_exists_subset _ _ _ _ _ (RB.hpath' a amem')
     -- This leaves just the subset property to prove
     intro x xmem
-    rcases List.mem_append.mp xmem with lhs | rhs
-    · exact List.mem_cons_of_mem _ (List.mem_append_left _ lhs)
-    · rw [← List.head_cons_tail _ hnnil] at rhs
-      rcases List.mem_cons.mp rhs with lhs' | rhs'
-      · rw [lhs']
-        exact List.mem_append_left _ List.mem_cons_self
-      · exact List.mem_append_right _ rhs'
+    rw [List.append_cons, ← List.reverse_singleton, ← List.reverse_append]
+    rwa [List.singleton_append, List.head_cons_tail]
 
 -- The length of 'pending' + 'unvisted' after moving the first
 -- pending cell to 'region' will be one less than it was previously.
@@ -1062,6 +1070,38 @@ lemma make_region_pending_nil (L : List (Int × Int)) (start : (Int × Int)) :
   unfold make_region
   exact make_region_impl_pending_nil _
 
+lemma make_region_region_ne_nil (L : List (Int × Int)) (start : (Int × Int)) :
+  (make_region L start).region ≠ [] := by
+  have := (make_region L start).hstart
+  split_ifs at this with h
+  · absurd this
+    intro hnnil
+    exact False.elim (hnnil (make_region_pending_nil L start))
+  · assumption
+
+-- The last element of the region is 'start'
+lemma make_region_region_last (L : List (Int × Int)) (start : (Int × Int)) :
+  (make_region L start).region.getLast (make_region_region_ne_nil L start) = start := by
+  have := (make_region L start).hstart
+  rw [dif_neg (make_region_region_ne_nil L start), make_region_start] at this
+  exact this.symm
+
+-- If a region has at least two elements, the first is not 'start'
+-- Note that this result is implementation dependent and not generally true.
+lemma make_region_region_head_ne_start (L : List (Int × Int)) (start : (Int × Int))
+  (hlen : 1 < (make_region L start).region.length) :
+  (make_region L start).region.head (
+    List.ne_nil_of_length_pos (lt_trans Nat.zero_lt_one hlen)) ≠ start := by
+  have hnnil : (make_region L start).region ≠ [] :=
+    List.ne_nil_of_length_pos (lt_trans Nat.zero_lt_one hlen)
+  nth_rw 4 [← make_region_region_last L start]
+  rw [List.head_eq_getElem_zero hnnil, List.getLast_eq_getElem]
+  let last_idx := (make_region L start).region.length - 1
+  have hpos : 0 < last_idx := by
+    unfold last_idx
+    exact Nat.lt_sub_of_add_lt hlen
+  exact (make_region L start).hregion_nd 0 last_idx hpos _
+
 -- Define a 'Region' as the finite set of cells in the 'region' list of a 'make_region'
 -- We can perform this construction because 'region' is guaranteed to have no duplicates.
 def Region (L : List (Int × Int)) (start : (Int × Int)) : Finset (Int × Int) :=
@@ -1077,18 +1117,17 @@ def Region (L : List (Int × Int)) (start : (Int × Int)) : Finset (Int × Int) 
 lemma region_start_mem (L : List (Int × Int)) (start : (Int × Int)) :
   start ∈ Region L start := by
   unfold Region; simp
-  have := (make_region L start).hstart
-  split_ifs at this with h
-  · push_neg at this
-    rcases this with ⟨hnnil, _⟩
-    exact False.elim (hnnil (make_region_pending_nil L start))
-  · rw [make_region_start] at this
-    convert List.getLast_mem h
+  nth_rw 2 [← make_region_region_last L start]
+  exact List.getLast_mem (make_region_region_ne_nil L start)
 
 -- No region is empty (since it contains at least 'start')
 lemma region_ne_empty (L : List (Int × Int)) (start : (Int × Int)) :
   Region L start ≠ ∅ :=
   Finset.ne_empty_of_mem (region_start_mem L start)
+
+lemma region_card_eq (L : List (Int × Int)) (start : (Int × Int)) :
+  (Region L start).card = (make_region L start).region.length := by
+  unfold Region; simp
 
 -- A cell is an element of a region if and only if there is
 -- a path from the cell to the start of that region.
@@ -1116,12 +1155,84 @@ lemma region_mem_iff (L : List (Int × Int)) (start : (Int × Int)) (smem : star
       absurd bmem
       convert List.not_mem_nil
       exact make_region_pending_nil _ _
-  · intro amem
+  · intro amem; simp at amem
     have hpath :=
       (make_region_impl (region_builder_init L start)).hpath' a (List.mem_append.mpr (Or.inl amem))
     rw [make_region_impl_start, region_builder_init_start] at hpath
+    rw [make_region_impl_pending_nil, List.reverse_nil, List.nil_append] at hpath
     apply path_exists_subset _ _ _ _ _ hpath
     intro x xmem
     rw [region_builder_init_all_cells_mem_iff _ start smem]
     rw [make_region_impl_all_cells_mem_iff]
-    exact List.mem_append.mpr (Or.inl xmem)
+    apply List.mem_append_left _ (List.mem_append_left _ _)
+    rcases List.mem_cons.mp xmem with lhs | rhs
+    · subst lhs
+      assumption
+    · exact List.mem_of_mem_tail rhs
+
+-- Any cell in a region will be present in the list used to create that region
+lemma region_subset_list (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L) :
+  ∀ (a : Int × Int), a ∈ (Region L start) → a ∈ L := by
+  intro a amem
+  apply (region_builder_init_all_cells_mem_iff L start smem a).mpr
+  apply (make_region_impl_all_cells_mem_iff _ a).mpr
+  exact List.mem_append_left _ (List.mem_append_left _ amem)
+
+-- Formula for removing a single cell from a region such that the result is still a region.
+lemma region_recurrence_exists
+  (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L) (llb : 1 < (Region L start).card) :
+  ∃ a, a ≠ start ∧ Region L start = insert a (Region ((list_rm_dupes L).erase a) start) := by
+  have hnnil : (make_region L start).region ≠ [] :=
+    List.ne_nil_of_mem (region_start_mem L start)
+  have llb' : 1 < (make_region L start).region.length := by
+    rwa [region_card_eq] at llb
+  have hnes : (make_region L start).region.head hnnil ≠ start :=
+    make_region_region_head_ne_start _ _ llb'
+  use (make_region L start).region.head hnnil, hnes
+  ext x
+  -- A similar technique is used for both directions of the proof:
+  -- 1) Construct a path from 'x' to start using 'region_mem_iff' or hpath
+  -- 2) Apply 'region_mem_iff' to the goal
+  -- 3) Apply path_exists_subset to the goal with the path created in (1)
+  -- 4) Show that the list of allowed cells for the path in (1) is a subset
+  --    of the allowed cells in the goal
+  constructor
+  · intro xmem
+    unfold Region at xmem; simp at xmem
+    by_cases xhead : x = (make_region L start).region.head hnnil
+    · subst xhead
+      exact Finset.mem_insert_self _ _
+    rename' xhead => hnhead; push_neg at hnhead
+    apply Finset.mem_insert.mpr; right
+    apply (region_mem_iff _ _ _ _).mp; swap
+    · exact (List.mem_erase_of_ne hnes.symm).mpr ((list_rm_dupes_mem_iff _ _).mpr smem)
+    have := (make_region L start).hpath' x (List.mem_append.mpr (Or.inl xmem))
+    rw [make_region_start] at this
+    apply path_exists_subset x start _ _ _ this
+    -- Now we just need to prove the subset requirement
+    rw [make_region_pending_nil, List.reverse_nil, List.nil_append]
+    intro y ymem
+    have yneh : y ≠ (make_region L start).region.head hnnil := by
+      rcases List.mem_cons.mp ymem with lhs | rhs
+      · subst lhs; assumption
+      · rcases List.getElem_of_mem rhs with ⟨i, ilt, rfl⟩
+        rw [List.length_tail] at ilt
+        rw [List.getElem_tail, List.head_eq_getElem_zero]; symm
+        exact (make_region L start).hregion_nd 0 (i + 1) (Nat.add_one_pos _) _
+    have ymem' : y ∈ L := by
+      rcases List.mem_cons.mp ymem with lhs | rhs
+      · subst lhs
+        exact region_subset_list L start smem _ xmem
+      · exact region_subset_list L start smem _ (List.mem_of_mem_tail rhs)
+    exact (List.mem_erase_of_ne yneh).mpr ((list_rm_dupes_mem_iff L y).mpr ymem')
+  · intro h
+    rcases Finset.mem_insert.mp h with lhs | rhs
+    · subst lhs
+      unfold Region; simp
+    · apply (region_mem_iff L start smem x).mp
+      let L' := ((list_rm_dupes L).erase ((make_region L start).region.head hnnil))
+      have smem' : start ∈ L' := by
+        apply (List.mem_erase_of_ne _).mpr ((list_rm_dupes_mem_iff L start).mpr smem)
+        exact (make_region_region_head_ne_start L start llb').symm
+      apply path_exists_subset x start _ _ _ ((region_mem_iff L' start smem' x).mpr rhs)
+      exact fun y ymem ↦ (list_rm_dupes_mem_iff L y).mp (List.mem_of_mem_erase ymem)
