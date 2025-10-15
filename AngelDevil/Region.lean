@@ -1170,6 +1170,20 @@ lemma region_mem_iff (L : List (Int × Int)) (start : (Int × Int)) (smem : star
       assumption
     · exact List.mem_of_mem_tail rhs
 
+-- Every cell on a path to 'start' is in the corresponding region
+lemma region_mem_of_path_mem (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L)
+  (P : Path) (hnnil : P.route ≠ []) (hss : P.route ⊆ L) (hstart : P.route.getLast hnnil = start) :
+  ∀ a ∈ P.route, a ∈ Region L start := by
+  intro a amem
+  apply (region_mem_iff _ _ smem _).mp
+  rcases List.getElem_of_mem amem with ⟨i, ilt, hri⟩
+  use path_split_right P i, path_split_right_ne_nil P i ilt
+  constructor
+  · exact fun x xmem ↦ hss (path_split_right_subset P i xmem)
+  constructor
+  · exact Eq.trans (path_split_right_head P i ilt) hri
+  exact Eq.trans (path_split_right_getLast P i ilt) hstart
+
 -- Any cell in a region will be present in the list used to create that region
 lemma region_subset_list (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L) :
   ∀ (a : Int × Int), a ∈ (Region L start) → a ∈ L := by
@@ -1236,3 +1250,58 @@ lemma region_recurrence_exists
         exact (make_region_region_head_ne_start L start llb').symm
       apply path_exists_subset x start _ _ _ ((region_mem_iff L' start smem' x).mpr rhs)
       exact fun y ymem ↦ (list_rm_dupes_mem_iff L y).mp (List.mem_of_mem_erase ymem)
+
+-- For every cell in the region, there is some other
+-- cell adjacent to it which is also in the region.
+lemma region_adjacent_exists_of_mem
+  (L : List (Int × Int)) (start : (Int × Int)) (smem : start ∈ L) (llb : 1 < (Region L start).card) :
+  ∀ a ∈ Region L start, ∃ b ∈ Region L start, adjacent a b := by
+  intro a amem
+  unfold Region
+  have hnnil := make_region_region_ne_nil L start
+  have llb' : 1 < (make_region L start).region.length := by
+    rwa [region_card_eq] at llb
+  by_cases hsa : start = a
+  · subst hsa
+    -- Pick a cell in the region known to be distinct from 'start'
+    -- and find a path from that cell to start.
+    let c := (make_region L start).region.head hnnil
+    have cmem : c ∈ Region L start := List.head_mem hnnil
+    rcases (region_mem_iff L start smem c).mpr cmem with ⟨P, pnnil, pss, hhead, hlast⟩
+    -- Because c ≠ start, the path must have at least two elements
+    have pllb : 1 < P.route.length := by
+      by_contra! h
+      apply make_region_region_head_ne_start L start llb'
+      change c = start
+      rw [← hhead, ← hlast, List.head_eq_getElem_zero, List.getLast_eq_getElem]
+      rw [getElem_congr_idx (Nat.sub_eq_zero_of_le h)]
+    -- Show that the second-to-last cell in the path is adjacent to 'start'
+    let d := P.route[P.route.length - 2]'(Nat.sub_lt (List.length_pos_of_ne_nil pnnil) (by norm_num))
+    have hadj : adjacent d start := by
+      rw [← hlast, List.getLast_eq_getElem]
+      unfold d
+      have hlt : P.route.length - 2 < P.route.length - 1 := by
+        rw [← one_add_one_eq_two, Nat.sub_add_eq]
+        exact Nat.sub_lt (Nat.lt_sub_of_add_lt pllb) (by norm_num)
+      convert P.hadj (P.route.length - 2) hlt using 2
+      rw [← one_add_one_eq_two, Nat.sub_add_eq, Nat.sub_one_add_one]
+      exact Nat.sub_ne_zero_of_lt pllb
+    have hmem : d ∈ (make_region L start).region :=
+      region_mem_of_path_mem L start smem P pnnil pss hlast d (List.getElem_mem _)
+    use d, hmem, (adjacent_comm _ _).mp hadj
+  · rename' hsa => snea; push_neg at snea
+    -- Get the path from 'a' to start
+    rcases (region_mem_iff L start smem a).mpr amem with ⟨P, pnnil, pss, hhead, hlast⟩
+    -- Since a ≠ start, the path must have at least two elements
+    have pllb : 1 < P.route.length := by
+      contrapose! snea; rename' snea => lle
+      rw [← hlast, ← hhead, List.getLast_eq_getElem, List.head_eq_getElem_zero]
+      congr
+      exact Nat.sub_eq_zero_of_le lle
+    let b := P.route[1]'pllb
+    have hadj : adjacent a b := by
+      rw [← hhead, List.head_eq_getElem_zero]
+      exact P.hadj 0 (Nat.sub_pos_of_lt pllb)
+    have hmem : b ∈ (make_region L start).region :=
+      region_mem_of_path_mem L start smem P pnnil pss hlast b (List.getElem_mem _)
+    exact ⟨b, hmem, hadj⟩
