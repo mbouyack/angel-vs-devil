@@ -39,6 +39,36 @@ lemma left_ne_self (a : Int × Int) : left a ≠ a := by
   absurd this; push_neg
   exact Int.ne_of_lt (Int.pred_self_lt _)
 
+lemma up_ne_down (a : Int × Int) : up a ≠ down a := by
+  unfold up down
+  intro h
+  absurd (Prod.ext_iff.mp h).2; linarith
+
+lemma up_ne_left (a : Int × Int) : up a ≠ left a := by
+  unfold up left
+  intro h
+  absurd (Prod.ext_iff.mp h).2; linarith
+
+lemma up_ne_right (a : Int × Int) : up a ≠ right a := by
+  unfold up right
+  intro h
+  absurd (Prod.ext_iff.mp h).2; linarith
+
+lemma down_ne_left (a : Int × Int) : down a ≠ left a := by
+  unfold down left
+  intro h
+  absurd (Prod.ext_iff.mp h).2; linarith
+
+lemma down_ne_right (a : Int × Int) : down a ≠ right a := by
+  unfold down right
+  intro h
+  absurd (Prod.ext_iff.mp h).2; linarith
+
+lemma left_ne_right (a : Int × Int) : left a ≠ right a := by
+  unfold left right
+  intro h
+  absurd (Prod.ext_iff.mp h).1; linarith
+
 lemma down_up (a : Int × Int) : down (up a) = a := by
   unfold down up; simp
 
