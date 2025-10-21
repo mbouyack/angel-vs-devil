@@ -409,3 +409,188 @@ termination_by (Region L start).card
 decreasing_by
   rw [ha, Finset.card_insert_of_notMem anmem]
   exact Nat.lt_add_one _
+
+lemma adjacent_of_unit_diff (c₀ c₁ : Int × Int) :
+  (c₁.1 - c₀.1) ^ 2 + (c₁.2 - c₀.2) ^ 2 = 1 → adjacent c₀ c₁ := by
+  intro h
+  rw [pow_two, pow_two] at h
+  -- We can save ourselves from having to redo some of the proofs in
+  -- Trace.lean by packing our given variables in a RunState.
+  -- TODO: Fix this hack!
+  -- We need a better strategy for working with unit vectors.
+  let rs : RunState := RunState.mk 0 0 (c₁.1 - c₀.1) (c₁.2 - c₀.2) h
+  unfold adjacent
+  rcases runstate_u_zero_or_v_zero rs with uz | vz
+  · have vabs : rs.v.natAbs = 1 := by
+      have := runstate_uabs_add_vabs_eq_one rs
+      rwa [uz, Int.natAbs_zero, zero_add] at this
+    unfold rs at uz; dsimp at uz
+    unfold rs at vabs; dsimp at vabs
+    rcases Int.natAbs_eq_iff.mp vabs with lhs | rhs
+    · rw [Int.natCast_one] at lhs
+      left
+      unfold up
+      rw [← Int.sub_eq_zero.mp uz, add_comm, ← Int.sub_eq_iff_eq_add.mp lhs]
+    · rw [Int.natCast_one] at rhs
+      right; left
+      unfold down
+      rw [← Int.sub_eq_zero.mp uz, Int.sub_eq_add_neg, add_comm]
+      rw [← Int.sub_eq_iff_eq_add.mp rhs]
+  · have uabs : rs.u.natAbs = 1 := by
+      have := runstate_uabs_add_vabs_eq_one rs
+      rwa [vz, Int.natAbs_zero, add_zero] at this
+    unfold rs at vz; dsimp at vz
+    unfold rs at uabs; dsimp at uabs
+    rcases Int.natAbs_eq_iff.mp uabs with lhs | rhs
+    · rw [Int.natCast_one] at lhs
+      right; right; right
+      unfold right
+      rw [← Int.sub_eq_zero.mp vz, add_comm, ← Int.sub_eq_iff_eq_add.mp lhs]
+    · rw [Int.natCast_one] at rhs
+      right; right; left
+      unfold left
+      rw [← Int.sub_eq_zero.mp vz, Int.sub_eq_add_neg, add_comm]
+      rw [← Int.sub_eq_iff_eq_add.mp rhs]
+
+lemma adjacent_left_of_runner (rs : RunState) : adjacent (loc rs) (left_of_runner rs) := by
+  unfold left_of_runner loc
+  apply adjacent_of_unit_diff; simp
+  rw [add_comm, pow_two, pow_two]
+  exact rs.unit
+
+-- Define an edge made of the runner's current location and the cell to their left
+def edge_of_runner (rs : RunState) : Edge where
+  _in := left_of_runner rs
+  _out := loc rs
+  hadj := (adjacent_comm _ _).mp (adjacent_left_of_runner rs)
+
+-- If a trace has a valid start, each state in the trace corresponds to an edge of
+-- the region of blocked cells. In this context "valid" means the trace does not
+-- begin on a blocked cell but *does* begin with a blocked cell to its left.
+lemma edge_of_runner_mem_region_edges
+  (n : Nat) (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) :
+  ∀ rs ∈ trace n start blocked,
+  edge_of_runner rs ∈ get_edges (Region blocked (left_of_runner start)) := by
+  intro rs rsmem
+  -- First handle the case where n = 0
+  by_cases nz : n = 0
+  · subst nz
+    rw [trace_nil] at rsmem
+    exact False.elim ((List.mem_nil_iff rs).mp rsmem)
+  rename' nz => nnz; push_neg at nnz
+  have hnnil : trace n start blocked ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.pos_of_ne_zero nnz
+  unfold run_start_valid at hvalid
+  -- First prove that the runner is not standing in the region
+  have outnmem : (edge_of_runner rs)._out ∉ Region blocked (left_of_runner start) := by
+    unfold edge_of_runner; dsimp
+    intro h
+    have hnblocked := trace_avoids_blocked n start blocked hvalid.1 rs rsmem
+    exact hnblocked (region_subset_list blocked (left_of_runner start) hvalid.2 (loc rs) h)
+  -- To show that the edge is actually an edge of the region we
+  -- just need to show that there exists a path from 'left_of_runner start'
+  -- to the "in" cell.
+  apply (get_edges_mem_iff _ _).mpr ⟨(region_mem_iff _ _ hvalid.2 _).mp _, outnmem⟩
+  -- Let 'i' be the location of 'rs' within the trace
+  rcases List.getElem_of_mem rsmem with ⟨i, ilt, hirs⟩
+  have ilt' : i < n := by rwa [trace_length] at ilt
+  -- Handle the case where i = 0
+  by_cases iz : i = 0
+  · subst iz hirs
+    rw [trace_getElem_zero_of_nonnil _ _ _ hnnil]
+    use path_mk_singleton (left_of_runner start), path_mk_singleton_ne_nil _
+    constructor
+    · rw [path_mk_singleton_route]
+      exact fun _ hmem ↦ (List.mem_singleton.mp hmem) ▸ hvalid.2
+    constructor
+    · rw [List.head_eq_getElem]
+      -- Why does List.head_congr not exist? Work around by converting to 'getElem'.
+      rw [getElem_congr_coll (path_mk_singleton_route (left_of_runner start))]
+      rw [List.getElem_singleton]; rfl
+    · rw [List.getLast_congr _ _ ((path_mk_singleton_route (left_of_runner start)))]; swap
+      · exact List.cons_ne_nil _ _
+      rw [List.getLast_singleton]
+  rename' iz => inz; push_neg at inz
+  rw [trace_getElem_recurrence' n start blocked i (Nat.pos_of_ne_zero inz)] at hirs; swap
+  · assumption
+  -- Define rs' as the run state which comes before rs in the trace
+  let rs' := (trace n start blocked)[i - 1]'(lt_of_le_of_lt (Nat.sub_le _ _) ilt)
+  -- Show that rs' is an element of the trace of length i
+  have rs'mem : rs' ∈ (trace i start blocked) := by
+    unfold rs'
+    rw [trace_getElem_getLast]
+    have hnnil' : trace i start blocked ≠ [] := by
+      apply List.ne_nil_of_length_pos
+      rw [trace_length]
+      exact Nat.pos_of_ne_zero inz
+    convert List.getLast_mem hnnil'
+    exact Nat.sub_one_add_one inz
+  change next_step blocked rs' = rs at hirs
+  -- Recurse to get the rest of the path
+  have hpath : path_exists (left_of_runner rs') (left_of_runner start) blocked := by
+    have := edge_of_runner_mem_region_edges i start blocked hvalid rs' rs'mem
+    exact (region_mem_iff _ _ hvalid.2 _).mpr ((get_edges_mem_iff _ _).mp this).1
+  rcases hpath with ⟨P, pnnil, pss, phead, plast⟩
+  unfold next_step at hirs
+  -- Note that we're using 'by_cases' here instead of 'split_ifs'
+  -- so that we can re-use the definition and results related to P' (below)
+  by_cases h₀ : loc (turn_left rs') ∉ blocked
+  · rw [if_pos h₀] at hirs
+    rw [← hirs]
+    use P, pnnil, pss
+    constructor
+    · rw [phead]
+      unfold edge_of_runner left_of_runner turn_left; dsimp
+      rw [sub_right_comm, Int.add_sub_cancel, ← Int.sub_eq_add_neg]
+      rw [Int.add_sub_cancel]
+    · assumption
+  rw [if_neg h₀] at hirs
+  push_neg at h₀
+  have hadj₀ : adjacent (loc (turn_left rs')) (P.route.head pnnil) := by
+    rw [phead]
+    unfold left_of_runner turn_left loc
+    apply adjacent_of_unit_diff; simp
+    rw [pow_two, pow_two]
+    exact rs'.unit
+  -- Define the P' as the path which begins at the 'turn_left' cell
+  -- and continues through the original path P
+  let P' := path_extend P pnnil (loc (turn_left rs')) hadj₀
+  have p'nnil := path_extend_ne_nil _ pnnil _ hadj₀
+  have p'ss : P'.route ⊆ blocked := by
+    rw [path_extend_route]
+    intro x xmem
+    rcases List.mem_cons.mp xmem with lhs | rhs
+    · rwa [lhs]
+    · exact pss rhs
+  split_ifs at hirs with h₁
+  · have hadj₁ : adjacent (loc (move_forward rs')) (P'.route.head p'nnil) := by
+      rw [path_extend_head]
+      unfold move_forward turn_left loc
+      apply adjacent_of_unit_diff; simp
+      rw [add_comm, pow_two, pow_two]
+      exact rs'.unit
+    -- Define P'' as the path which begins at the 'move_forward' cell
+    -- and continues through the path P'
+    let P'' := path_extend P' p'nnil (loc (move_forward rs')) hadj₁
+    have p''nnil := path_extend_ne_nil _ p'nnil _ hadj₁
+    use P'', p''nnil
+    constructor
+    · intro x xmem
+      rw [path_extend_route] at xmem
+      rcases List.mem_cons.mp xmem with lhs | rhs
+      · rwa [lhs]
+      · exact p'ss rhs
+    constructor
+    · rw [path_extend_head, ← hirs]
+      unfold move_forward edge_of_runner left_of_runner turn_right loc; dsimp
+      rw [Int.sub_neg]
+    rwa [path_extend_getLast, path_extend_getLast]
+  · use P', p'nnil, p'ss
+    constructor
+    · rw [path_extend_head, ← hirs]
+      unfold move_forward edge_of_runner left_of_runner turn_left loc; dsimp
+      rw [add_assoc, add_comm rs'.u, ← add_assoc]
+    rwa [path_extend_getLast]

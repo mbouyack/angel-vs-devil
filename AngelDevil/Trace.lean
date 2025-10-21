@@ -228,9 +228,13 @@ lemma next_step_intermediate_value_x (blocked : List (Int × Int)) (rs : RunStat
     (Int.natAbs_of_nonneg (Int.sub_nonneg.mpr hle)) ▸ (Nat.cast_le.mpr ub)
   exact (hhelper hle hleone lex xle).symm
 
--- In order to produce a valid trace, the runner must begin with a blocked cell to its left.
+-- Get the wall adjacent to a given run state
+def left_of_runner (rs : RunState) : (Int × Int) := ⟨rs.x - rs.v, rs.y + rs.u⟩
+
+-- In order to produce a valid trace, the runner must begin on a
+-- cell that isn't blocked, with a blocked cell to its left.
 def run_start_valid (blocked : List (Int × Int)) : RunState → Prop :=
-  fun run_start ↦ ⟨run_start.x - run_start.v, run_start.y + run_start.u⟩ ∈ blocked
+  fun run_start ↦ (loc run_start ∉ blocked) ∧ left_of_runner run_start ∈ blocked
 
 -- Build a trace of length 'n' around the cells in 'blocked' starting at 'rs'
 def trace (n : Nat) (rs : RunState) (blocked : List (Int × Int)) : List RunState :=
