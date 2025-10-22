@@ -3,6 +3,7 @@ import Mathlib.Data.Finset.Card
 import Mathlib.Data.Finset.Union
 import AngelDevil.Trace
 import AngelDevil.Region
+import AngelDevil.Unit
 
 set_option linter.style.longLine false
 
@@ -22,65 +23,13 @@ instance : DecidableEq Edge := fun a b ↦
   else
     isFalse (fun h' ↦ h (Edge.ext_iff.mp h'))
 
--- Make an edge with 'c' and the cell to its left
-def mk_edge_left (c : Int × Int) : Edge where
+def mk_edge_unit (c : Int × Int) (u : UVec) : Edge where
   _in := c
-  _out := left c
-  hadj := (adjacent_comm _ _).mp (left_adjacent c)
+  _out := c + u
+  hadj := Exists.intro u rfl
 
--- Make an edge with 'c' and the cell to its right
-def mk_edge_right (c : Int × Int) : Edge where
-  _in := c
-  _out := right c
-  hadj := (adjacent_comm _ _).mp (right_adjacent c)
-
--- Make an edge with 'c' and the cell above it
-def mk_edge_up (c : Int × Int) : Edge where
-  _in := c
-  _out := up c
-  hadj := (adjacent_comm _ _).mp (up_adjacent c)
-
--- Make an edge with 'c' and the cell below it
-def mk_edge_down (c : Int × Int) : Edge where
-  _in := c
-  _out := down c
-  hadj := (adjacent_comm _ _).mp (down_adjacent c)
-
-lemma edge_up_eq (c : Int × Int) :
-  mk_edge_up c = ⟨c, up c, (mk_edge_up c).hadj⟩ := rfl
-
-lemma edge_down_eq (c : Int × Int) :
-  mk_edge_down c = ⟨c, down c, (mk_edge_down c).hadj⟩ := rfl
-
-lemma edge_right_eq (c : Int × Int) :
-  mk_edge_right c = ⟨c, right c, (mk_edge_right c).hadj⟩ := rfl
-
-lemma edge_left_eq (c : Int × Int) :
-  mk_edge_left c = ⟨c, left c, (mk_edge_left c).hadj⟩ := rfl
-
-lemma edge_up_ne_edge_down (c : Int × Int) :
-  mk_edge_up c ≠ mk_edge_down c :=
-  fun h ↦ up_ne_down c (Edge.ext_iff.mp h).2
-
-lemma edge_up_ne_edge_left (c : Int × Int) :
-  mk_edge_up c ≠ mk_edge_left c :=
-  fun h ↦ up_ne_left c (Edge.ext_iff.mp h).2
-
-lemma edge_up_ne_edge_right (c : Int × Int) :
-  mk_edge_up c ≠ mk_edge_right c :=
-  fun h ↦ up_ne_right c (Edge.ext_iff.mp h).2
-
-lemma edge_down_ne_edge_left (c : Int × Int) :
-  mk_edge_down c ≠ mk_edge_left c :=
-  fun h ↦ down_ne_left c (Edge.ext_iff.mp h).2
-
-lemma edge_down_ne_edge_right (c : Int × Int) :
-  mk_edge_down c ≠ mk_edge_right c :=
-  fun h ↦ down_ne_right c (Edge.ext_iff.mp h).2
-
-lemma edge_left_ne_edge_right (c : Int × Int) :
-  mk_edge_left c ≠ mk_edge_right c :=
-  fun h ↦ left_ne_right c (Edge.ext_iff.mp h).2
+lemma mk_edge_unit_in (c : Int × Int) (u : UVec) :
+  (mk_edge_unit c u)._in = c := rfl
 
 -- Swap the cell considered 'in' and the cell considered 'out
 -- Typically this will be used to indicate that a pair of cells
@@ -91,7 +40,7 @@ def edge_flip (e : Edge) : Edge where
   hadj := (adjacent_comm _ _).mp e.hadj
 
 def get_cell_edges (c : Int × Int) : Finset Edge :=
-  {(mk_edge_up c), (mk_edge_down c), (mk_edge_left c), (mk_edge_right c)}
+  Finset.image (fun u ↦ mk_edge_unit c u) uvec_finset
 
 def get_cell_antiedges (c : Int × Int) : Finset Edge :=
   Finset.image edge_flip (get_cell_edges c)
@@ -106,37 +55,22 @@ lemma edge_flip_out (e : Edge) : (edge_flip e)._out = e._in := rfl
 
 lemma edge_flip_flip (e : Edge) : edge_flip (edge_flip e) = e := rfl
 
--- An edge is on a particular cell, if-and-only-if it is one of four possible edges
-lemma cell_edges_mem_iff (c : Int × Int) (e : Edge) :
-  e ∈ get_cell_edges c ↔
-  e = mk_edge_up c ∨ e = mk_edge_down c ∨ e = mk_edge_left c ∨ e = mk_edge_right c := by
-  constructor
-  · intro emem
-    repeat apply Or.elim (Finset.mem_insert.mp emem) (fun h ↦ Or.inl h); intro emem; right
-    exact Finset.mem_singleton.mp emem
-  · intro h
-    repeat apply Finset.mem_insert.mpr (Or.elim h (fun h ↦ Or.inl h) _); intro h; right
-    exact Finset.mem_singleton.mpr h
-
 -- An edge is an edge of 'c' if-and-only-if c is its "in" cell
-lemma cell_edges_mem_iff' (c : Int × Int) :
+lemma cell_edges_mem_iff (c : Int × Int) :
   ∀ e, e ∈ get_cell_edges c ↔ e._in = c := by
   intro e
   constructor
   · intro h
-    repeat apply Or.elim (Finset.mem_insert.mp h) (fun hec ↦ by rw [hec]; rfl); intro h
-    rw [Finset.mem_singleton.mp h]; rfl
+    rcases Finset.mem_image.mp h with ⟨u, _, hu⟩
+    rw [← hu]
+    exact mk_edge_unit_in c u
   · intro h
-    have he : e = ⟨c, e._out, h ▸ e.hadj⟩ := by
-      apply Edge.ext <;> dsimp
-      assumption
-    rw [he]
-    apply (cell_edges_mem_iff _ _).mpr
-    rcases h ▸ e.hadj with h₀ | h₁ | h₂ | h₃
-    · rw [edge_up_eq]; left; symm; congr
-    · rw [edge_down_eq]; right; left; symm; congr
-    · rw [edge_left_eq]; right; right; left; symm; congr
-    · rw [edge_right_eq]; right; right; right; symm; congr
+    apply Finset.mem_image.mpr
+    rcases e.hadj with ⟨u, hu⟩
+    use u, uvec_finset_mem u
+    unfold mk_edge_unit
+    subst h
+    apply Edge.ext (by rfl) hu
 
 -- If a flipped edge is an edge of 'c', the the original edge is an anti-edge of 'c'
 lemma cell_antiedges_mem_iff (c : Int × Int) :
@@ -159,8 +93,8 @@ lemma cell_edges_antiedges_disjoint (c : Int × Int) :
   ext e; constructor
   · intro h
     rcases Finset.mem_inter.mp h with ⟨emem₀, emem₁⟩
-    rw [cell_edges_mem_iff'] at emem₀
-    rw [cell_antiedges_mem_iff, cell_edges_mem_iff', edge_flip_in] at emem₁
+    rw [cell_edges_mem_iff] at emem₀
+    rw [cell_antiedges_mem_iff, cell_edges_mem_iff, edge_flip_in] at emem₁
     exact False.elim ((adjacent_ne _ _ e.hadj) (emem₁ ▸ emem₀))
   · exact fun h ↦ False.elim (Finset.notMem_empty _ h)
 
@@ -177,20 +111,20 @@ lemma get_edges_mem_iff (S : Finset (Int × Int)) :
   · intro emem
     rcases Finset.mem_sdiff.mp emem with ⟨emem, enmem⟩
     rcases Finset.mem_biUnion.mp emem with ⟨c, cmem, hec⟩
-    rw [(cell_edges_mem_iff' _ _).mp hec]; use cmem
+    rw [(cell_edges_mem_iff _ _).mp hec]; use cmem
     contrapose! enmem; rename' enmem => outmem
     apply Finset.mem_biUnion.mpr
     use e._out, outmem
-    rw [cell_antiedges_mem_iff, ← edge_flip_in, cell_edges_mem_iff']
+    rw [cell_antiedges_mem_iff, ← edge_flip_in, cell_edges_mem_iff]
   · intro ⟨emem, enmem⟩
     apply Finset.mem_sdiff.mpr
     · constructor
       · apply Finset.mem_biUnion.mpr
         use e._in, emem
-        rw [cell_edges_mem_iff']
+        rw [cell_edges_mem_iff]
       · contrapose! enmem; rename' enmem => emem'
         rcases Finset.mem_biUnion.mp emem' with ⟨c, cmem, emem''⟩
-        rw [cell_antiedges_mem_iff, cell_edges_mem_iff', edge_flip_in] at emem''
+        rw [cell_antiedges_mem_iff, cell_edges_mem_iff, edge_flip_in] at emem''
         rwa [emem'']
 
 lemma get_edges_singleton (c : Int × Int) :
@@ -201,24 +135,16 @@ lemma get_edges_singleton (c : Int × Int) :
   exact cell_edges_antiedges_disjoint _
 
 -- To show that the set of edges of a single cell has four elements
--- we need to show that each pair of elements is non-equal.
+-- we just need to show that the function from UVec is injective.
 lemma get_edges_singleton_card (c : Int × Int) :
   (get_edges {c}).card = 4 := by
   rw [get_edges_singleton]
   unfold get_cell_edges
-  rw [Finset.card_insert_of_notMem]; swap
-  · intro h
-    apply Or.elim (Finset.mem_insert.mp h) (fun h' ↦ edge_up_ne_edge_down _ h'); intro h
-    apply Or.elim (Finset.mem_insert.mp h) (fun h' ↦ edge_up_ne_edge_left _ h'); intro h
-    exact edge_up_ne_edge_right _ (Finset.mem_singleton.mp h)
-  rw [Finset.card_insert_of_notMem]; swap
-  · intro h
-    apply Or.elim (Finset.mem_insert.mp h) (fun h' ↦ edge_down_ne_edge_left _ h'); intro h
-    exact edge_down_ne_edge_right _ (Finset.mem_singleton.mp h)
-  rw [Finset.card_insert_of_notMem]; swap
-  · intro h
-    exact edge_left_ne_edge_right _ (Finset.mem_singleton.mp h)
-  rw [Finset.card_singleton]
+  rw [Finset.card_image_of_injective]
+  · exact uvec_finset_card
+  · intro u v; dsimp
+    intro  h
+    exact (uvec_coe_eq_coe_iff _ _).mp (add_left_cancel (Edge.ext_iff.mp h).2)
 
 -- Useful rewrite for the proof below
 lemma edge_flip_biUnion_edges (S : Finset (Int × Int)) :
@@ -301,9 +227,9 @@ lemma get_edges_insert (c : Int × Int) (S : Finset (Int × Int)) (cnmem : c ∉
       rcases Finset.mem_inter.mp h with ⟨xmem₀, xmem₁⟩
       rcases Finset.mem_biUnion.mp xmem₁ with ⟨d, dmem, xmem₂⟩
       have hc : x._in = c :=
-        (cell_edges_mem_iff' _ _).mp xmem₀
+        (cell_edges_mem_iff _ _).mp xmem₀
       have hd : x._in = d :=
-        (cell_edges_mem_iff' _ _).mp xmem₂
+        (cell_edges_mem_iff _ _).mp xmem₂
       absurd cnmem
       rwa [← hc, hd]
     · exact fun h ↦ False.elim (Finset.notMem_empty _ h)
@@ -321,8 +247,7 @@ lemma region_edges_le (L : List (Int × Int)) (start : (Int × Int)) (smem : sta
     have llpos : 1 ≤ L.length := Nat.add_one_le_of_lt (List.length_pos_of_mem smem)
     apply le_trans _ (Nat.add_le_add_right (Nat.mul_le_mul_left 2 llpos) 2)
     rw [mul_one, two_add_two_eq_four]
-    repeat apply le_trans (Finset.card_insert_le _ _) (Nat.add_one_le_add_one_iff.mpr _)
-    rw [Finset.card_singleton]
+    rw [← get_edges_singleton, get_edges_singleton_card]
   rename' hrl1 => hrlne1; push_neg at hrlne1
   have rlpos : 0 < (Region L start).card :=
     Finset.card_pos.mpr (Finset.nonempty_of_ne_empty (region_ne_empty L start))
@@ -413,50 +338,17 @@ decreasing_by
 lemma adjacent_of_unit_diff (c₀ c₁ : Int × Int) :
   (c₁.1 - c₀.1) ^ 2 + (c₁.2 - c₀.2) ^ 2 = 1 → adjacent c₀ c₁ := by
   intro h
-  rw [pow_two, pow_two] at h
-  -- We can save ourselves from having to redo some of the proofs in
-  -- Trace.lean by packing our given variables in a RunState.
-  -- TODO: Fix this hack!
-  -- We need a better strategy for working with unit vectors.
-  let rs : RunState := RunState.mk 0 0 (c₁.1 - c₀.1) (c₁.2 - c₀.2) h
-  unfold adjacent
-  rcases runstate_u_zero_or_v_zero rs with uz | vz
-  · have vabs : rs.v.natAbs = 1 := by
-      have := runstate_uabs_add_vabs_eq_one rs
-      rwa [uz, Int.natAbs_zero, zero_add] at this
-    unfold rs at uz; dsimp at uz
-    unfold rs at vabs; dsimp at vabs
-    rcases Int.natAbs_eq_iff.mp vabs with lhs | rhs
-    · rw [Int.natCast_one] at lhs
-      left
-      unfold up
-      rw [← Int.sub_eq_zero.mp uz, add_comm, ← Int.sub_eq_iff_eq_add.mp lhs]
-    · rw [Int.natCast_one] at rhs
-      right; left
-      unfold down
-      rw [← Int.sub_eq_zero.mp uz, Int.sub_eq_add_neg, add_comm]
-      rw [← Int.sub_eq_iff_eq_add.mp rhs]
-  · have uabs : rs.u.natAbs = 1 := by
-      have := runstate_uabs_add_vabs_eq_one rs
-      rwa [vz, Int.natAbs_zero, add_zero] at this
-    unfold rs at vz; dsimp at vz
-    unfold rs at uabs; dsimp at uabs
-    rcases Int.natAbs_eq_iff.mp uabs with lhs | rhs
-    · rw [Int.natCast_one] at lhs
-      right; right; right
-      unfold right
-      rw [← Int.sub_eq_zero.mp vz, add_comm, ← Int.sub_eq_iff_eq_add.mp lhs]
-    · rw [Int.natCast_one] at rhs
-      right; right; left
-      unfold left
-      rw [← Int.sub_eq_zero.mp vz, Int.sub_eq_add_neg, add_comm]
-      rw [← Int.sub_eq_iff_eq_add.mp rhs]
+  use UVec.mk (c₁.1 - c₀.1) (c₁.2 - c₀.2) h
+  unfold uvec_coe
+  rw [Prod.add_def]; dsimp
+  rw [← Int.add_sub_assoc, ← Int.add_sub_assoc]
+  rw [add_sub_cancel_left, add_sub_cancel_left]
 
 lemma adjacent_left_of_runner (rs : RunState) : adjacent (loc rs) (left_of_runner rs) := by
   unfold left_of_runner loc
   apply adjacent_of_unit_diff; simp
-  rw [add_comm, pow_two, pow_two]
-  exact rs.unit
+  rw [add_comm]
+  exact rs.u.unit
 
 -- Define an edge made of the runner's current location and the cell to their left
 def edge_of_runner (rs : RunState) : Edge where
@@ -553,8 +445,7 @@ lemma edge_of_runner_mem_region_edges
     rw [phead]
     unfold left_of_runner turn_left loc
     apply adjacent_of_unit_diff; simp
-    rw [pow_two, pow_two]
-    exact rs'.unit
+    exact rs'.u.unit
   -- Define the P' as the path which begins at the 'turn_left' cell
   -- and continues through the original path P
   let P' := path_extend P pnnil (loc (turn_left rs')) hadj₀
@@ -570,8 +461,8 @@ lemma edge_of_runner_mem_region_edges
       rw [path_extend_head]
       unfold move_forward turn_left loc
       apply adjacent_of_unit_diff; simp
-      rw [add_comm, pow_two, pow_two]
-      exact rs'.unit
+      rw [add_comm]
+      exact rs'.u.unit
     -- Define P'' as the path which begins at the 'move_forward' cell
     -- and continues through the path P'
     let P'' := path_extend P' p'nnil (loc (move_forward rs')) hadj₁
@@ -592,5 +483,5 @@ lemma edge_of_runner_mem_region_edges
     constructor
     · rw [path_extend_head, ← hirs]
       unfold move_forward edge_of_runner left_of_runner turn_left loc; dsimp
-      rw [add_assoc, add_comm rs'.u, ← add_assoc]
+      rw [add_assoc, add_comm rs'.u.x, ← add_assoc]
     rwa [path_extend_getLast]

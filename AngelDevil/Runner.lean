@@ -18,9 +18,7 @@ set_option linter.style.longLine false
 def run_start : RunState where
   x := 0
   y := 0
-  u := 0
-  v := 1
-  unit := by simp
+  u := uvec_up
 
 /- The three different structures needed to define the runner's journey
    have interdependencies that make them difficult to construct separately.
@@ -154,6 +152,7 @@ def builder_journey_extend {p : Nat} (S : RunBuilder p) : Journey p :=
 
 -- Why doesn't this theorem aleady exist?
 -- TODO: If this is needed elsewhere, move it into 'Basic.lean' or 'Util.lean'
+-- Note, "List.cons_ne_nil x []" is equivalent
 lemma list_singleton_ne_nil {α : Type} (x : α) : [x] ≠ [] := by
   apply List.ne_nil_of_length_pos
   rw [List.length_singleton]

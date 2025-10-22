@@ -1,132 +1,93 @@
+import Mathlib.Algebra.Group.Prod
 import Mathlib.Data.List.Basic
 import Mathlib.Data.Finset.Basic
 import Mathlib.Data.Finset.Card
+import AngelDevil.Unit
 import AngelDevil.Util
 import AngelDevil.Dupes
 
 set_option linter.style.longLine false
 
-def up (a : Int × Int) := (a.1, a.2 + 1)
-def down (a : Int × Int) := (a.1, a.2 - 1)
-def right (a : Int × Int) := (a.1 + 1, a.2)
-def left (a : Int × Int) := (a.1 - 1, a.2)
+def up (a : Int × Int) := (a.1 + 0, a.2 + 1)
+def down (a : Int × Int) := (a.1 + 0, a.2 + -1)
+def right (a : Int × Int) := (a.1 + 1, a.2 + 0)
+def left (a : Int × Int) := (a.1 - 1, a.2 + 0)
 
-lemma up_ne_self (a : Int × Int) : up a ≠ a := by
-  unfold up
-  intro h
-  have := (Prod.ext_iff.mp h).2; dsimp at this
-  absurd this; push_neg
-  exact Int.ne_of_gt (Int.lt_succ _)
-
-lemma down_ne_self (a : Int × Int) : down a ≠ a := by
-  unfold down
-  intro h
-  have := (Prod.ext_iff.mp h).2; dsimp at this
-  absurd this; push_neg
-  exact Int.ne_of_lt (Int.pred_self_lt _)
-
-lemma right_ne_self (a : Int × Int) : right a ≠ a := by
-  unfold right
-  intro h
-  have := (Prod.ext_iff.mp h).1; dsimp at this
-  absurd this; push_neg
-  exact Int.ne_of_gt (Int.lt_succ _)
-
-lemma left_ne_self (a : Int × Int) : left a ≠ a := by
-  unfold left
-  intro h
-  have := (Prod.ext_iff.mp h).1; dsimp at this
-  absurd this; push_neg
-  exact Int.ne_of_lt (Int.pred_self_lt _)
-
-lemma up_ne_down (a : Int × Int) : up a ≠ down a := by
-  unfold up down
-  intro h
-  absurd (Prod.ext_iff.mp h).2; linarith
-
-lemma up_ne_left (a : Int × Int) : up a ≠ left a := by
-  unfold up left
-  intro h
-  absurd (Prod.ext_iff.mp h).2; linarith
-
-lemma up_ne_right (a : Int × Int) : up a ≠ right a := by
-  unfold up right
-  intro h
-  absurd (Prod.ext_iff.mp h).2; linarith
-
-lemma down_ne_left (a : Int × Int) : down a ≠ left a := by
-  unfold down left
-  intro h
-  absurd (Prod.ext_iff.mp h).2; linarith
-
-lemma down_ne_right (a : Int × Int) : down a ≠ right a := by
-  unfold down right
-  intro h
-  absurd (Prod.ext_iff.mp h).2; linarith
-
-lemma left_ne_right (a : Int × Int) : left a ≠ right a := by
-  unfold left right
-  intro h
-  absurd (Prod.ext_iff.mp h).1; linarith
-
-lemma down_up (a : Int × Int) : down (up a) = a := by
-  unfold down up; simp
-
-lemma up_down (a : Int × Int) : up (down a) = a := by
-  unfold down up; simp
-
-lemma left_right (a : Int × Int) : left (right a) = a := by
-  unfold left right; simp
-
-lemma right_left (a : Int × Int) : right (left a) = a := by
-  unfold left right; simp
-
+-- Two cells are orthogonally adjacent if adding some
+-- unit vector to one results in the other.
 def adjacent (a b : Int × Int) : Prop :=
-  up a = b ∨ down a = b ∨ left a = b ∨ right a = b
-
-lemma up_adjacent (a : Int × Int) :
-  adjacent (up a) a := by
-  unfold adjacent; right; left
-  rw [down_up]
-
-lemma down_adjacent (a : Int × Int) :
-  adjacent (down a) a := by
-  unfold adjacent; left
-  rw [up_down]
-
-lemma right_adjacent (a : Int × Int) :
-  adjacent (right a) a := by
-  unfold adjacent; right; right; left
-  rw [left_right]
-
-lemma left_adjacent (a : Int × Int) :
-  adjacent (left a) a := by
-  unfold adjacent; right; right; right
-  rw [right_left]
+  ∃ u : UVec, a + u = b
 
 -- 'a' is adjacent to 'b' if-and-only-if 'b' is adjacent to 'a'
 lemma adjacent_comm (a b : Int × Int) :
   adjacent a b ↔ adjacent b a := by
-  unfold adjacent
   constructor
-  repeat
   · intro h
-    rcases h with h₀ | h₁ | h₂ | h₃
-    · right; left
-      rw [← h₀, down_up]
-    · left
-      rw [← h₁, up_down]
-    · right; right; right
-      rw [← h₂, right_left]
-    · right; right; left
-      rw [← h₃, left_right]
+    rcases h with ⟨u, rfl⟩
+    use uvec_neg u
+    rw [uvec_coe_neg, add_assoc, add_neg_cancel, add_zero]
+  · intro h
+    rcases h with ⟨u, rfl⟩
+    use uvec_neg u
+    rw [uvec_coe_neg, add_assoc, add_neg_cancel, add_zero]
 
+lemma up_adjacent (a : Int × Int) :
+  adjacent (up a) a := by
+  rw [adjacent_comm]
+  use uvec_up
+  rw [Prod.add_def]; rfl
+
+lemma down_adjacent (a : Int × Int) :
+  adjacent (down a) a := by
+  rw [adjacent_comm]
+  use uvec_down
+  rw [Prod.add_def]; rfl
+
+lemma right_adjacent (a : Int × Int) :
+  adjacent (right a) a := by
+  rw [adjacent_comm]
+  use uvec_right
+  rw [Prod.add_def]; rfl
+
+lemma left_adjacent (a : Int × Int) :
+  adjacent (left a) a := by
+  rw [adjacent_comm]
+  use uvec_left
+  rw [Prod.add_def]; rfl
+
+lemma adjacent_eq_dir_iff (a b : Int × Int) :
+  a = up b ∨ a = down b ∨ a = left b ∨ a = right b ↔ adjacent a b := by
+  constructor
+  · intro h
+    rcases h with rfl | rfl | rfl | rfl
+    · exact up_adjacent _
+    · exact down_adjacent _
+    · exact left_adjacent _
+    · exact right_adjacent _
+  · intro h
+    rw [adjacent_comm] at h
+    rcases h with ⟨u, rfl⟩
+    rw [Prod.add_def]
+    rcases uvec_coe_eq u with h₀ | h₁ | h₂ | h₃
+    · left; rw [h₀]; rfl
+    · right; left; rw [h₁]; rfl
+    · right; right; left; rw [h₂]; rfl
+    · right; right; right; rw [h₃]; rfl
+
+-- If two cells are adjacent they are different cells
 lemma adjacent_ne (a b : Int × Int) :
   adjacent a b → a ≠ b := by
-  unfold adjacent
-  intro h
-  contrapose! h; subst h
-  exact ⟨up_ne_self a, down_ne_self a, left_ne_self a, right_ne_self a⟩
+  rintro ⟨u, hu⟩
+  by_contra! hab
+  rw [← hab, add_eq_left] at hu
+  obtain ⟨h₀, h₁⟩ := Prod.ext_iff.mp hu
+  rcases uvec_xnez_or_ynez u with lhs | rhs
+  · apply lhs
+    simp at h₀
+    rw [← h₀]; rfl
+  · apply rhs
+    simp at h₁
+    rw [← h₁]; rfl
 
 structure Path where
   route : List (Int × Int)
@@ -949,9 +910,9 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
     region_builder_try_add_cell (
     region_builder_try_add_cell (
     region_builder_try_add_cell RB
-      (RB.pending.head hnnil) ((RB.pending.head hnnil).1 + 1, (RB.pending.head hnnil).2)
+      (RB.pending.head hnnil) (right (RB.pending.head hnnil))
         (right_adjacent _) (List.mem_append_right _ (List.head_mem hnnil)))
-      (RB.pending.head hnnil) ((RB.pending.head hnnil).1 - 1, (RB.pending.head hnnil).2)
+      (RB.pending.head hnnil) (left (RB.pending.head hnnil))
         (left_adjacent _) (by
           apply List.mem_append_right
           convert List.head_mem _ using 1
@@ -959,7 +920,7 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
           apply region_builder_try_add_cell_pending_ne_nil
           assumption
         ))
-      (RB.pending.head hnnil) ((RB.pending.head hnnil).1, (RB.pending.head hnnil).2 + 1)
+      (RB.pending.head hnnil) (up (RB.pending.head hnnil))
         (up_adjacent _) (by
           apply List.mem_append_right
           convert List.head_mem _ using 1
@@ -967,7 +928,7 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
           · repeat apply region_builder_try_add_cell_pending_ne_nil
             assumption
         ))
-      (RB.pending.head hnnil) ((RB.pending.head hnnil).1, (RB.pending.head hnnil).2 - 1)
+      (RB.pending.head hnnil) (down (RB.pending.head hnnil))
         (down_adjacent _) (by
           apply List.mem_append_right
           convert List.head_mem _ using 1
@@ -1006,9 +967,8 @@ def make_region_step (RB : RegionBuilder) (hnnil : RB.pending ≠ []) : RegionBu
       · left; exact hright
       -- Now that we've ruled out all possible adjacencies,
       -- we can find a contradiction with 'cadj'
-      absurd cadj
-      unfold adjacent; push_neg at *
-      exact ⟨hup.symm, hdown.symm, hleft.symm, hright.symm⟩
+      absurd (adjacent_eq_dir_iff _ _).mpr ((adjacent_comm _ _).mp cadj); push_neg
+      exact ⟨hup, hdown, hleft, hright⟩
     ))
 
 -- All cells in the region builder prior to call 'make_region_step' will still be in the region builder after.
@@ -1318,7 +1278,7 @@ lemma region_adjacent_exists_of_mem
       exact Nat.sub_ne_zero_of_lt pllb
     have hmem : d ∈ (make_region L start).region :=
       region_mem_of_path_mem L start smem P pnnil pss hlast d (List.getElem_mem _)
-    use d, hmem, (adjacent_comm _ _).mp hadj
+    exact ⟨d, hmem, (adjacent_comm _ _).mp hadj⟩
   · rename' hsa => snea; push_neg at snea
     -- Get the path from 'a' to start
     rcases (region_mem_iff L start smem a).mpr amem with ⟨P, pnnil, pss, hhead, hlast⟩

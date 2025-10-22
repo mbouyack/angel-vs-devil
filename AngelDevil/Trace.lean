@@ -2,6 +2,7 @@ import Mathlib.Data.Fin.Basic
 import Mathlib.Data.List.Basic
 import AngelDevil.Basic
 import AngelDevil.Misc
+import AngelDevil.Unit
 
 set_option linter.style.longLine false
 
@@ -11,13 +12,11 @@ set_option linter.style.longLine false
 @[ext] structure RunState where
   x : Int -- Current location, x-coord
   y : Int -- Current location, y-coord
-  u : Int -- Direction of travel, x-coord
-  v : Int -- Direction of travel, y-coord
-  unit : u * u + v * v = 1 -- ⟨u, v⟩ should be a unit vector
+  u : UVec -- Direction of travel, given by a unit vector
 
 -- Prove that we can determine whether two 'RunState' are equal
 instance : DecidableEq RunState := fun a b ↦
-  if h : a.x = b.x ∧ a.y = b.y ∧ a.u = b.u ∧ a.v = b.v then
+  if h : a.x = b.x ∧ a.y = b.y ∧ a.u = b.u then
     isTrue (RunState.ext_iff.mpr h)
   else
     isFalse (fun h' ↦ h (RunState.ext_iff.mp h'))
@@ -25,108 +24,31 @@ instance : DecidableEq RunState := fun a b ↦
 -- Convenience macros for repackaging the location and direction
 -- parameters as Int × Int
 def loc (rs : RunState) : Int × Int := ⟨rs.x, rs.y⟩
-def dir (rs : RunState) : Int × Int := ⟨rs.u, rs.v⟩
-
--- Upper bound on the x-coordinate of the direction
-lemma runstate_abs_u_le_one (rs : RunState) : Int.natAbs rs.u ≤ 1 := by
-  by_contra! h
-  have h₀ : 2 ≤ rs.u * rs.u := by
-    rw [← one_add_one_eq_two, ← pow_two, ← Int.natAbs_pow_two, pow_two]
-    apply Int.add_one_le_of_lt
-    apply Nat.cast_lt.mpr
-    exact Nat.mul_lt_mul'' h h
-  have h₁ : 0 ≤ rs.v * rs.v := by
-    rw [← pow_two]
-    exact pow_two_nonneg rs.v
-  have := Int.add_le_add h₀ h₁
-  rw [add_zero, rs.unit] at this
-  absurd this
-  norm_num
-
--- Upper bound on the y-coordinate of the direction
-lemma runstate_abs_v_le_one (rs : RunState) : Int.natAbs rs.v ≤ 1 := by
-  by_contra! h
-  have h₀ : 2 ≤ rs.v * rs.v := by
-    rw [← one_add_one_eq_two, ← pow_two, ← Int.natAbs_pow_two, pow_two]
-    apply Int.add_one_le_of_lt
-    apply Nat.cast_lt.mpr
-    exact Nat.mul_lt_mul'' h h
-  have h₁ : 0 ≤ rs.u * rs.u := by
-    rw [← pow_two]
-    exact pow_two_nonneg rs.u
-  have := Int.add_le_add h₁ h₀
-  rw [zero_add, rs.unit] at this
-  absurd this
-  norm_num
-
--- Either the x or y-coordinate of the direction must be zero
-lemma runstate_u_zero_or_v_zero (rs : RunState) :
-  rs.u = 0 ∨ rs.v = 0 := by
-  rw [← Int.natAbs_eq_zero, ← Int.natAbs_eq_zero]
-  by_contra! h
-  have hu1 : Int.natAbs rs.u = 1 :=
-    le_antisymm (runstate_abs_u_le_one rs) ((Nat.one_le_of_lt (Nat.pos_of_ne_zero h.1)))
-  have hv1 : Int.natAbs rs.v = 1 :=
-    le_antisymm (runstate_abs_v_le_one rs) ((Nat.one_le_of_lt (Nat.pos_of_ne_zero h.2)))
-  have hupow2 : rs.u ^ 2 = 1 := by
-    rw [← Int.natAbs_pow_two, hu1]; simp
-  have hvpow2 : rs.v ^ 2 = 1 := by
-    rw [← Int.natAbs_pow_two, hv1]; simp
-  have : rs.u * rs.u + rs.v * rs.v = 2 := by
-    rw [← pow_two, ← pow_two, hupow2, hvpow2]; simp
-  rw [rs.unit] at this
-  absurd this
-  norm_num
-
-lemma runstate_uabs_add_vabs_eq_one (rs : RunState) :
-  rs.u.natAbs + rs.v.natAbs = 1 := by
-  rcases runstate_u_zero_or_v_zero rs with lhs | rhs
-  · rw [Int.natAbs_eq_zero.mpr lhs, zero_add]
-    by_contra! h
-    have vz : rs.v = 0 :=
-      Int.natAbs_eq_zero.mp (Nat.le_zero.mp (Nat.le_of_lt_add_one (lt_of_le_of_ne (runstate_abs_v_le_one rs) h)))
-    have := rs.unit
-    rw [lhs, vz, mul_zero, add_zero] at this
-    absurd this
-    norm_num
-  · rw [Int.natAbs_eq_zero.mpr rhs, add_zero]
-    by_contra! h
-    have uz : rs.u = 0 :=
-      Int.natAbs_eq_zero.mp (Nat.le_zero.mp (Nat.le_of_lt_add_one (lt_of_le_of_ne (runstate_abs_u_le_one rs) h)))
-    have := rs.unit
-    rw [rhs, uz, mul_zero, add_zero] at this
-    absurd this
-    norm_num
+def dir (rs : RunState) : Int × Int := rs.u
 
 /- Move forward one cell, turn left, and move forward one cell again.
    Note that for the purposes of counting traversed walls, this counts
    as a single step, not two. -/
 def turn_left (rs : RunState) : RunState where
-  x := rs.x + rs.u - rs.v
-  y := rs.y + rs.u + rs.v
-  u := -rs.v
-  v := rs.u
-  unit := by
-    rw [Int.neg_mul_neg, Int.add_comm]
-    exact rs.unit
+  x := rs.x + rs.u.x - rs.u.y
+  y := rs.y + rs.u.x + rs.u.y
+  u := UVec.mk (-rs.u.y) (rs.u.x) (by
+    simp; rw [add_comm]; exact rs.u.unit
+  )
 
 -- Move forward one cell
 def move_forward (rs : RunState) : RunState where
-  x := rs.x + rs.u
-  y := rs.y + rs.v
+  x := rs.x + rs.u.x
+  y := rs.y + rs.u.y
   u := rs.u
-  v := rs.v
-  unit := rs.unit
 
 -- Without changing cells, turn 90-degrees to the right
 def turn_right (rs : RunState) : RunState where
   x := rs.x
   y := rs.y
-  u := rs.v
-  v := -rs.u
-  unit := by
-    rw [Int.neg_mul_neg, Int.add_comm]
-    exact rs.unit
+  u := UVec.mk rs.u.y (-rs.u.x) (by
+    simp; rw [add_comm]; exact rs.u.unit
+  )
 
 -- Turning right doesn't change the location, only the direction
 lemma turn_right_loc (rs : RunState) : loc (turn_right rs) = loc rs := rfl
@@ -147,7 +69,7 @@ lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
   split_ifs with h₀ h₁
   · unfold turn_right dist loc; simp
   · unfold move_forward dist loc; simp
-    exact ⟨runstate_abs_u_le_one rs, runstate_abs_v_le_one rs⟩
+    exact ⟨uvec_abs_x_le_one rs.u, uvec_abs_y_le_one rs.u⟩
   unfold turn_left dist loc; simp
   have (a b c : Int) (h : b.natAbs + c.natAbs = 1) : (a - (a + b + c)).natAbs ≤ 1 := by
     rw [Int.sub_eq_add_neg, Int.neg_add, Int.neg_add]
@@ -157,9 +79,9 @@ lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
   constructor
   · apply this
     rw [Int.natAbs_neg]
-    exact runstate_uabs_add_vabs_eq_one rs
+    exact uvec_xabs_add_yabs_eq_one rs.u
   · apply this
-    exact runstate_uabs_add_vabs_eq_one rs
+    exact uvec_xabs_add_yabs_eq_one rs.u
 
 -- Adding more cells to the block list won't change the
 -- next step if that cell is not in the updated block list
@@ -229,7 +151,7 @@ lemma next_step_intermediate_value_x (blocked : List (Int × Int)) (rs : RunStat
   exact (hhelper hle hleone lex xle).symm
 
 -- Get the wall adjacent to a given run state
-def left_of_runner (rs : RunState) : (Int × Int) := ⟨rs.x - rs.v, rs.y + rs.u⟩
+def left_of_runner (rs : RunState) : (Int × Int) := ⟨rs.x - rs.u.y, rs.y + rs.u.x⟩
 
 -- In order to produce a valid trace, the runner must begin on a
 -- cell that isn't blocked, with a blocked cell to its left.
