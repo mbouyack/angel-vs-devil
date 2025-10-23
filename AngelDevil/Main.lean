@@ -171,7 +171,8 @@ lemma devil_wins_equiv (p : Nat) :
    who can catch any efficient angel, we can construct a devil which can catch
    every angel of that power.
 -/
-theorem JC8_1 (p : Nat) : ¬(∃ D : Devil, devil_wins D p) → ∀ D : Devil, ∀ N : Nat, ∃ A : Journey p,
+theorem efficient_angel_wins_of_angel_wins (p : Nat) :
+  ¬(∃ D : Devil, devil_wins D p) → ∀ D : Devil, ∀ N : Nat, ∃ A : Journey p,
   N < steps A ∧ efficient A ∧ allowed D A := by
   intro h
   contrapose! h
@@ -239,7 +240,7 @@ theorem JC8_1 (p : Nat) : ¬(∃ D : Devil, devil_wins D p) → ∀ D : Devil, �
 
    Note that B(N) refers to the "escape square" of size 2N+1 in our formalization.
 -/
-theorem AM2_7 (p : Nat) : (∃ D : Devil, devil_wins D p) →
+theorem nice_devil_wins_of_devil_wins (p : Nat) : (∃ D : Devil, devil_wins D p) →
   (∃ (D : Devil), nice D p ∧ devil_wins' D p) := by
   rw [devil_wins_equiv]
   rintro ⟨d₀, N, h⟩
