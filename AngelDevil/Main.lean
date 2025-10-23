@@ -1,9 +1,12 @@
 import Mathlib.Data.Fin.Basic
+import Mathlib.Data.Finset.Card
 import Mathlib.Data.List.Basic
 import Mathlib.Tactic.Linarith
 import AngelDevil.Reduced
 import AngelDevil.Focused
 import AngelDevil.Runner
+import AngelDevil.Dupes
+import AngelDevil.Perimeter
 
 set_option linter.style.longLine false
 
@@ -330,11 +333,10 @@ theorem AM2_7 (p : Nat) : (∃ D : Devil, devil_wins D p) →
 -- Note that this result applies to the entire 'RunPath', not just the runner's journey.
 lemma run_path_trapped_of_nice_devil_wins
   (D : Devil) (p : Nat) (hnice : nice D p) (hdwins : devil_wins' D p) :
-  ∃ N, ∀ n, allowed D (make_run D p n).A →
-  ∀ rs ∈ RunPath D p n, close N (0, 0) (loc rs) := by
+  ∃ N, ∀ n, ∀ rs ∈ RunPath D p n, close N (0, 0) (loc rs) := by
   let ⟨N, htraps⟩ := hdwins
   use N
-  intro n hallowed rs rsmem
+  intro n rs rsmem
   -- First handle the case where n = 0
   by_cases nz : n = 0
   · subst nz
@@ -399,3 +401,118 @@ lemma run_path_trapped_of_nice_devil_wins
   rw [← cell_congr_idx A hsteps (Nat.lt_add_one _), ← last, append_last]
   intro h
   exact run_path_not_eaten_of_nice D p n hnice rs rsmem (List.mem_of_getElem h)
+
+-- Let RS be the run states "close" to the origin
+def RS (N : Nat) : Set RunState :=
+  {rs : RunState | close N (0, 0) (loc rs)}
+
+-- Demonstrate an equivalence between the RunStates in the escape square
+-- and the cartesian product of several Finsets whose cardinalities are known.
+def runstate_equiv (N : Nat) :
+  RS N ≃ Finset.range (2 * N + 1) ×ˢ Finset.range (2 * N + 1) ×ˢ uvec_finset where
+  toFun := fun ⟨rs, rsmem⟩ ↦ ⟨⟨Int.toNat (rs.x + N), Int.toNat (rs.y + N), rs.u⟩, by
+    apply Finset.mem_product.mpr; dsimp
+    constructor
+    · apply Finset.mem_range.mpr
+      have hlexN : 0 ≤ rs.x + N := by
+        apply Int.le_add_of_sub_left_le
+        rw [Int.zero_sub]
+        exact close_origin_negxle N (loc rs) rsmem
+      have hxNle : rs.x + N ≤ 2 * N := by
+        rw [two_mul]
+        apply add_le_add_right
+        exact close_origin_xle N (loc rs) rsmem
+      rw [Int.toNat_lt hlexN, Int.natCast_add, Int.natCast_one]
+      exact Int.lt_add_one_of_le hxNle
+    apply Finset.mem_product.mpr; dsimp
+    constructor
+    · apply Finset.mem_range.mpr
+      have hleyN : 0 ≤ rs.y + N := by
+        apply Int.le_add_of_sub_left_le
+        rw [Int.zero_sub]
+        exact close_origin_negyle N (loc rs) rsmem
+      have hyNle : rs.y + N ≤ 2 * N := by
+        rw [two_mul]
+        apply add_le_add_right
+        exact close_origin_yle N (loc rs) rsmem
+      rw [Int.toNat_lt hleyN, Int.natCast_add, Int.natCast_one]
+      exact Int.lt_add_one_of_le hyNle
+    · exact uvec_finset_mem _
+  ⟩
+  invFun := fun ⟨⟨a, b, u⟩, hmem⟩ ↦ ⟨⟨a - N, b - N, u⟩, by
+    rcases Finset.mem_product.mp hmem with ⟨amem, hmem⟩
+    rcases Finset.mem_product.mp hmem with ⟨bmem, umem⟩
+    have alt := Finset.mem_range.mp amem; dsimp at alt
+    have blt := Finset.mem_range.mp bmem; dsimp at blt
+    apply close_origin_of_bounds
+    unfold loc; dsimp
+    constructor
+    · simp
+    constructor
+    · apply Int.sub_left_le_of_le_add (Int.le_of_lt_add_one _)
+      rw [← two_mul]
+      exact Int.ofNat_lt.mpr alt
+    constructor
+    · simp
+    · apply Int.sub_left_le_of_le_add (Int.le_of_lt_add_one _)
+      rw [← two_mul]
+      exact Int.ofNat_lt.mpr blt
+  ⟩
+  left_inv := by
+    intro ⟨rs, rsmem⟩; dsimp; congr
+    · rw [Int.natCast_toNat_eq_self.mpr, Int.add_sub_cancel]
+      apply Int.le_add_of_sub_left_le
+      rw [zero_sub]
+      exact close_origin_negxle N (loc rs) rsmem
+    · rw [Int.natCast_toNat_eq_self.mpr, Int.add_sub_cancel]
+      apply Int.le_add_of_sub_left_le
+      rw [zero_sub]
+      exact close_origin_negyle N (loc rs) rsmem
+  right_inv := by
+    intro ⟨⟨a, b, u⟩, hmem⟩; dsimp; congr
+    · rw [Int.sub_add_cancel]; rfl
+    · rw [Int.sub_add_cancel]; rfl
+
+-- Use the run states equivalence to show that 'RS N' is a Fintype
+instance (N : Nat) : Fintype (RS N) := by
+  let F := (Finset.range (2 * N + 1) ×ˢ Finset.range (2 * N + 1) ×ˢ uvec_finset)
+  exact Fintype.ofEquiv F (runstate_equiv N).symm
+
+-- Use the run states equivalence to prove the cardinality of RS
+-- NOTE: It was very satisfying to prove this, but we don't actually need it!
+-- We only needed to prove that 'RS N' was a Fintype so we can use its cardinality.
+lemma runstate_card (N : Nat) : (RS N).toFinset.card = (2 * N + 1) * (2 * N + 1) * 4 := by
+  rw [Set.toFinset_card]
+  rw [← Finset.card_eq_of_equiv_fintype (runstate_equiv N).symm]
+  rw [Finset.card_product, Finset.card_product]
+  rw [Finset.card_range, uvec_finset_card, mul_assoc]
+
+-- If the nice devil wins, then a long enough RunPath must eventually loop
+lemma run_path_loops_of_nice_devil_wins
+  (D : Devil) (p : Nat) (hnice : nice D p) (hdwins : devil_wins' D p) :
+  ∃ N, ∀ n, N < (RunPath D p n).length → ¬list_nodupes (RunPath D p n) := by
+  -- First get the size of the escape square
+  rcases run_path_trapped_of_nice_devil_wins D p hnice hdwins with ⟨N, hclose⟩
+  -- Use the cardinality of 'RS N' as the lower bound for the length of the RunPath
+  use (RS N).toFinset.card
+  intro n cardlt
+  let L := (RunPath D p n).length
+  -- Define 'F' as the Finset of all 'Fin L'
+  let F := @Finset.univ (Fin L) _
+  change (RS N).toFinset.card < L at cardlt
+  rw [← Eq.trans Finset.card_univ (Fintype.card_fin L)] at cardlt
+  -- Define a function from F to 'RS N'
+  let f : Fin L → RunState := fun i ↦ (RunPath D p n)[i]
+  -- Show that the image of 'f' is in 'RS N'
+  have hmapsto : Set.MapsTo f F (RS N).toFinset := by
+    intro i _; simp
+    exact hclose n (RunPath D p n)[i] (List.get_mem _ _)
+  -- Use the pigeonhole principle to conclude that the RunPath contains a duplicate state
+  rcases Finset.exists_ne_map_eq_of_card_lt_of_maps_to cardlt hmapsto with ⟨i, _, j, _, inej, hij⟩
+  unfold list_nodupes; push_neg
+  by_cases ilt : i.val < j.val
+  · use i.val, j.val, ilt, j.2
+    exact hij
+  rename' ilt => jle; push_neg at jle
+  use j.val, i.val, lt_of_le_of_ne jle (Fin.val_ne_iff.mpr inej).symm, i.2
+  exact hij.symm
