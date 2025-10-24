@@ -1,11 +1,11 @@
 import Mathlib.Tactic.NormNum.Core
 import Mathlib.Data.List.Basic
+import AngelDevil.Util
 
 set_option linter.style.longLine false
 
 /- This file contains theorems related to removing duplicates from a list
-   and proving that a list is free of duplicates. This will be used as
-   an alternative 'Finset' -/
+   and proving that a list is free of duplicates. -/
 
 -- Note that List.dedup should do the same thing, but the implementation
 -- is complicated and there seem to be no existing theorems which reference it.
@@ -339,3 +339,73 @@ lemma list_rm_dupes_length_le {α : Type} [DecidableEq α] (L : List α) :
     · exact le_trans (list_rm_dupes_length_le xs) (Nat.le_add_right _ _)
     · rw [List.length_cons]
       exact Nat.add_le_add_right (list_rm_dupes_length_le xs) _
+
+abbrev list_has_dupe_fin {α : Type} [DecidableEq α] (L : List α) : Fin (L.length - 1 + 1) → Prop :=
+  fun i ↦ list_has_dupes (L.take (i.val + 1))
+
+-- Any duplicate in L will satisfy 'list_has_dupe_fin'
+lemma list_has_dupe_fin_of_dupe {α : Type} [DecidableEq α] (L : List α) :
+  ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
+  list_has_dupe_fin L (Fin.mk j (by
+    rwa [Nat.sub_one_add_one]
+    exact Nat.ne_zero_of_lt jlt
+  )) := by
+  intro i j ilt jlt hij
+  use i, j, ilt, (by
+    rw [List.length_take_of_le (Nat.add_one_le_of_lt jlt)]
+    exact Nat.lt_add_one _
+  )
+  rwa [List.getElem_take, List.getElem_take]
+
+lemma list_ne_nil_of_has_dupes
+  {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) : L ≠ [] := by
+  rcases hdupe with ⟨_, _, ilt, jlt, _⟩
+  exact List.ne_nil_of_length_pos (lt_of_le_of_lt (Nat.zero_le _) jlt)
+
+-- Find the first element which appears earlier in the list
+def find_first_dupe {α : Type} [DecidableEq α] (L : List α) (hnnil : L ≠ []) : Fin L.length :=
+  Fin.cast (Nat.sub_one_add_one (Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)))
+  (_find_first (list_has_dupe_fin L))
+
+-- Prove that the dupe found by 'find_first_dupe' is in-fact first
+-- Note that the second element of the pair is used to determine the order.
+lemma first_dupe_is_first {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) :
+  ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
+  find_first_dupe L (list_ne_nil_of_has_dupes L hdupe) ≤ j := by
+  intro i j ilt jlt hij
+  unfold find_first_dupe; simp
+  have hnnil := list_ne_nil_of_has_dupes L hdupe
+  have lnz : L.length ≠ 0 :=
+    Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)
+  exact _find_first_is_first _ _ (list_has_dupe_fin_of_dupe L i j ilt jlt hij)
+
+lemma first_dupe_is_dupe {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) :
+  (fun (j : Fin L.length) ↦ ∃ (i : Nat) (ilt : i < j.val), L[i]'(lt_trans ilt j.2) = L[j])
+  (find_first_dupe L (list_ne_nil_of_has_dupes L hdupe)) := by
+  have hnnil : L ≠ [] := list_ne_nil_of_has_dupes L hdupe
+  have lnz : L.length ≠ 0 :=
+    Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)
+  let k := _find_first (list_has_dupe_fin L)
+  dsimp
+  let ⟨i, j, ilt, jlt, hij⟩ := hdupe
+  have satex : ∃ x, list_has_dupe_fin L x := by
+    exact ⟨_, list_has_dupe_fin_of_dupe L i j ilt jlt hij⟩
+  have : list_has_dupe_fin L k := _find_first_is_sat _ satex
+  rcases this with ⟨a, b, alt, blt, hab⟩
+  have klt : k.val < L.length := by
+    convert k.2
+    exact (Nat.sub_one_add_one lnz).symm
+  rw [List.length_take_of_le (Nat.add_one_le_of_lt klt)] at blt
+  use a, (by
+    unfold find_first_dupe; simp
+    exact lt_of_lt_of_le alt (Nat.le_of_lt_add_one blt)
+  )
+  rw [List.getElem_take, List.getElem_take] at hab
+  convert hab
+  unfold find_first_dupe; simp
+  apply le_antisymm _ (Nat.le_of_lt_add_one blt)
+  have blt' : b < L.length :=
+    lt_of_le_of_lt (Nat.le_of_lt_add_one blt) klt
+  have := first_dupe_is_first L hdupe a b alt blt' hab
+  unfold find_first_dupe at this; simp at this
+  exact this
