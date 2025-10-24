@@ -327,6 +327,8 @@ lemma list_rm_dupes_nodupes {α : Type} [DecidableEq α] (L : List α) :
     have jpredlt := Nat.add_one_lt_add_one_iff.mp jlt
     exact list_rm_dupes_nodupes xs ipred jpred ipredlt jpredlt h'
 
+-- Removing duplicates from a list results in a list that is
+-- no longer than the original.
 lemma list_rm_dupes_length_le {α : Type} [DecidableEq α] (L : List α) :
   (list_rm_dupes L).length ≤ L.length := by
   unfold list_rm_dupes
@@ -357,6 +359,7 @@ lemma list_has_dupe_fin_of_dupe {α : Type} [DecidableEq α] (L : List α) :
   )
   rwa [List.getElem_take, List.getElem_take]
 
+-- A list with duplicates is non-empty
 lemma list_ne_nil_of_has_dupes
   {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) : L ≠ [] := by
   rcases hdupe with ⟨_, _, ilt, jlt, _⟩
@@ -379,6 +382,8 @@ lemma first_dupe_is_first {α : Type} [DecidableEq α] (L : List α) (hdupe : li
     Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)
   exact _find_first_is_first _ _ (list_has_dupe_fin_of_dupe L i j ilt jlt hij)
 
+-- Prove that the value at the location indicated by 'find_first_dupe' is
+-- in-fact a duplicate.
 lemma first_dupe_is_dupe {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) :
   (fun (j : Fin L.length) ↦ ∃ (i : Nat) (ilt : i < j.val), L[i]'(lt_trans ilt j.2) = L[j])
   (find_first_dupe L (list_ne_nil_of_has_dupes L hdupe)) := by
