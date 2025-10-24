@@ -21,6 +21,17 @@ lemma list_rm_dupes_nil {α : Type} [DecidableEq α] : list_rm_dupes ([] : List 
 def list_nodupes {α : Type} [DecidableEq α] (L : List α) : Prop :=
   ∀ i j (_ : i < j) (_ : j < L.length), L[i] ≠ L[j]
 
+def list_has_dupes {α : Type} [DecidableEq α] (L : List α) : Prop :=
+  ∃ i j, ∃ (_ : i < j) (_ : j < L.length), L[i] = L[j]
+
+@[simp] lemma list_not_nodupes {α : Type} [DecidableEq α] (L : List α) :
+  ¬list_nodupes L ↔ list_has_dupes L := by
+  unfold list_nodupes; push_neg; rfl
+
+@[simp] lemma list_not_has_dupes {α : Type} [DecidableEq α] (L : List α) :
+  ¬list_has_dupes L ↔ list_nodupes L := by
+  unfold list_has_dupes; push_neg; rfl
+
 -- The empty list has no duplicates
 lemma list_nodupes_nil {α : Type} [DecidableEq α] : list_nodupes ([] : List α) :=
   fun _ _ _ jlt ↦ False.elim (Nat.not_lt_zero _ (List.length_nil ▸ jlt))
@@ -33,10 +44,10 @@ lemma list_nodupes_singleton {α : Type} [DecidableEq α] (x : α) : list_nodupe
   exact False.elim (Nat.not_lt_zero _ (jz ▸ ilt))
 
 -- Proves the conditions under which an appended list has dupes
-lemma list_nodupes_append_dupes_iff {α : Type} [DecidableEq α] {L₀ L₁ : List α} :
-  ¬list_nodupes (L₀ ++ L₁) ↔
-  ¬list_nodupes L₀ ∨ ¬list_nodupes L₁ ∨ ∃ a, a ∈ L₀ ∧ a ∈ L₁ := by
-  unfold list_nodupes
+lemma list_has_dupes_append_iff {α : Type} [DecidableEq α] {L₀ L₁ : List α} :
+  list_has_dupes (L₀ ++ L₁) ↔
+  list_has_dupes L₀ ∨ list_has_dupes L₁ ∨ ∃ a, a ∈ L₀ ∧ a ∈ L₁ := by
+  unfold list_has_dupes
   constructor
   · intro h
     push_neg at h
@@ -44,7 +55,7 @@ lemma list_nodupes_append_dupes_iff {α : Type} [DecidableEq α] {L₀ L₁ : Li
     by_cases ilt' : i < L₀.length
     · rw [List.getElem_append_left ilt'] at h
       by_cases jlt' : j < L₀.length
-      · left; push_neg
+      · left
         use i, j, ilt, jlt'
         rw [h, List.getElem_append_left]
       · rename' jlt' => lej; push_neg at lej
@@ -54,7 +65,6 @@ lemma list_nodupes_append_dupes_iff {α : Type} [DecidableEq α] {L₀ L₁ : Li
         exact List.getElem_mem _
     · rename' ilt' => lei; push_neg at lei
       right; left
-      push_neg
       have lej : L₀.length ≤ j := le_of_lt (lt_of_le_of_lt lei ilt)
       use (i - L₀.length), (j - L₀.length), (Nat.sub_lt_sub_right lei ilt)
       use (by
@@ -62,18 +72,16 @@ lemma list_nodupes_append_dupes_iff {α : Type} [DecidableEq α] {L₀ L₁ : Li
         rwa [List.length_append, add_comm] at jlt
       )
       rwa [List.getElem_append_right lei, List.getElem_append_right lej] at h
-  · intro h; push_neg
+  · intro h
     rcases h with h | h | h
-    · push_neg at h
-      rcases h with ⟨i, j, ilt, jlt, h⟩
+    · rcases h with ⟨i, j, ilt, jlt, h⟩
       use i, j, ilt, (by
         rw [List.length_append]
         exact lt_of_lt_of_le jlt (Nat.le_add_right _ _)
       )
       have ilt' : i < L₀.length := lt_trans ilt jlt
       rwa [List.getElem_append_left ilt', List.getElem_append_left jlt]
-    · push_neg at h
-      rcases h with ⟨i, j, ilt, jlt, h⟩
+    · rcases h with ⟨i, j, ilt, jlt, h⟩
       use (i + L₀.length), (j + L₀.length), (Nat.add_lt_add_right ilt _)
       use (by
         rw [List.length_append, add_comm]
@@ -105,16 +113,18 @@ lemma list_nodupes_singleton_append_iff
   list_nodupes ([a] ++ L) ↔ a ∉ L ∧ list_nodupes L := by
   constructor
   · intro h
-    contrapose! h
-    apply list_nodupes_append_dupes_iff.mpr
+    contrapose! h;
+    rw [list_not_nodupes] at *
+    apply list_has_dupes_append_iff.mpr
     by_cases hmem : a ∈ L
     · exact Or.inr (Or.inr ⟨a, List.mem_singleton_self a, hmem⟩)
     exact Or.inr (Or.inl (h hmem))
   · intro ⟨hmem, hnd⟩
     by_contra! h
-    rcases list_nodupes_append_dupes_iff.mp h with h' | h' | h'
-    · exact h' (list_nodupes_singleton a)
-    · exact h' hnd
+    rw [list_not_nodupes] at h
+    rcases list_has_dupes_append_iff.mp h with h' | h' | h'
+    · exact (list_not_nodupes _).mpr h' (list_nodupes_singleton a)
+    · exact (list_not_nodupes _).mpr h' hnd
     · rcases h' with ⟨b, meml, memr⟩
       exact hmem ((List.mem_singleton.mp meml) ▸ memr)
 
@@ -127,15 +137,17 @@ lemma list_nodupes_append_singleton_iff
   constructor
   · intro h
     contrapose! h
-    apply list_nodupes_append_dupes_iff.mpr
+    rw [list_not_nodupes] at *
+    apply list_has_dupes_append_iff.mpr
     by_cases hmem : a ∈ L
     · exact Or.inr (Or.inr ⟨a, hmem, List.mem_singleton_self a⟩)
     exact Or.inl (h hmem)
   · intro ⟨hmem, hnd⟩
     by_contra! h
-    rcases list_nodupes_append_dupes_iff.mp h with h' | h' | h'
-    · exact h' hnd
-    · exact h' (list_nodupes_singleton a)
+    rw [list_not_nodupes] at h
+    rcases list_has_dupes_append_iff.mp h with h' | h' | h'
+    · exact (list_not_nodupes _).mpr h' hnd
+    · exact (list_not_nodupes _).mpr h' (list_nodupes_singleton a)
     · rcases h' with ⟨b, meml, memr⟩
       exact hmem ((List.mem_singleton.mp memr) ▸ meml)
 
@@ -147,6 +159,44 @@ lemma list_nodupes_cons_iff {α : Type} [DecidableEq α] (x : α) (xs : List α)
 lemma list_nodupes_head_tail_iff {α : Type} [DecidableEq α] (L : List α) (hnnil : L ≠ []) :
   list_nodupes L ↔ L.head hnnil ∉ L.tail ∧ list_nodupes L.tail := by
   nth_rw 1 [← List.head_cons_tail L hnnil, list_nodupes_cons_iff (L.head hnnil) L.tail]
+
+-- I haven't been able to prove directly that 'list_nodupes' is decidable
+-- so we will show that this trivially decidable definition is equivalent.
+abbrev list_nodupes_decidable {α : Type} [DecidableEq α] (L : List α) : Prop :=
+  ∀ (i j : Fin L.length), i = j ∨ L[i] ≠ L[j]
+
+-- Show that the trivially decidable definition of 'nodupe' is equivalent
+-- to the original definition.
+lemma list_nodupes_iff {α : Type} [DecidableEq α] (L : List α) :
+  list_nodupes L ↔ list_nodupes_decidable L := by
+  constructor
+  · intro h i j
+    by_cases ilt : i.val < j.val
+    · right
+      exact h i.val j.val ilt j.2
+    rename' ilt => jle; push_neg at jle
+    by_cases hij : i = j
+    · left; assumption
+    push_neg at hij
+    have jlt := Nat.lt_of_le_of_ne jle (Fin.val_ne_iff.mpr hij).symm
+    right; symm
+    exact h j i jlt i.2
+  · intro h i j ilt jlt
+    let i' : Fin L.length := ⟨i, lt_trans ilt jlt⟩
+    let j' : Fin L.length := ⟨j, jlt⟩
+    rcases h i' j' with lhs | rhs
+    · exact False.elim ((ne_of_lt ilt) (Fin.val_eq_of_eq lhs))
+    · assumption
+
+-- Prove that 'list_nodupes' is decidable
+instance {α : Type} [DecidableEq α] : DecidablePred (@list_nodupes α _) := fun L ↦ by
+  rw [list_nodupes_iff]
+  apply inferInstance
+
+-- Prove that 'list_has_dupes' is decidable
+instance {α : Type} [DecidableEq α] : DecidablePred (@list_has_dupes α _) := fun L ↦ by
+  rw [← list_not_nodupes]
+  apply inferInstance
 
 -- If a list has no duplicate values, then neither does its tail
 lemma list_nodupes_tail_of_nodupes {α : Type} [DecidableEq α] (L : List α) :

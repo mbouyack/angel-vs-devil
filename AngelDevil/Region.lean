@@ -280,7 +280,7 @@ def region_builder_all_cells (RB : RegionBuilder) : List (Int × Int) :=
 lemma region_builder_notmem_pending_and_unvisited (RB : RegionBuilder) :
   ∀ c, ¬(c ∈ RB.pending ∧ c ∈ RB.unvisited) := by
   intro c ⟨hmem₀, hmem₁⟩
-  apply list_nodupes_append_dupes_iff.mpr _ RB.hnodupes
+  apply ((list_not_nodupes _).mpr (list_has_dupes_append_iff.mpr _)) RB.hnodupes
   right; right
   exact ⟨c, List.mem_append_right _ hmem₀, hmem₁⟩
 
@@ -288,7 +288,7 @@ lemma region_builder_notmem_pending_and_unvisited (RB : RegionBuilder) :
 lemma region_builder_notmem_region_and_unvisited (RB : RegionBuilder) :
   ∀ c, ¬(c ∈ RB.region ∧ c ∈ RB.unvisited) := by
   intro c ⟨hmem₀, hmem₁⟩
-  apply list_nodupes_append_dupes_iff.mpr _ RB.hnodupes
+  apply ((list_not_nodupes _).mpr (list_has_dupes_append_iff.mpr _)) RB.hnodupes
   right; right
   exact ⟨c, List.mem_append_left _ hmem₀, hmem₁⟩
 
@@ -296,8 +296,8 @@ lemma region_builder_notmem_region_and_unvisited (RB : RegionBuilder) :
 lemma region_builder_notmem_region_and_pending (RB : RegionBuilder) :
   ∀ c, ¬(c ∈ RB.region ∧ c ∈ RB.pending) := by
   intro c ⟨hmem₀, hmem₁⟩
-  apply list_nodupes_append_dupes_iff.mpr _ RB.hnodupes; left
-  apply list_nodupes_append_dupes_iff.mpr; right; right
+  apply ((list_not_nodupes _).mpr (list_has_dupes_append_iff.mpr _)) RB.hnodupes; left
+  apply list_has_dupes_append_iff.mpr; right; right
   exact ⟨c, hmem₀, hmem₁⟩
 
 -- RegionBuilder corresponding to the initial state of the region building algorithm.
@@ -431,10 +431,10 @@ def region_builder_try_add_cell (RB : RegionBuilder) (a c : Int × Int)
     (list_nodupes_erase_of_nodupes _ RB.hunvisited_nd _)
     (by
       by_contra h₀
-      rcases list_nodupes_append_dupes_iff.mp h₀ with h₁ | h₁ | h₁
-      · rcases list_nodupes_append_dupes_iff.mp h₁ with h₂ | h₂| h₂
-        · exact h₂ RB.hregion_nd
-        · apply h₂
+      rcases list_has_dupes_append_iff.mp ((list_not_nodupes _).mp h₀) with h₁ | h₁ | h₁
+      · rcases list_has_dupes_append_iff.mp h₁ with h₂ | h₂| h₂
+        · exact (list_not_nodupes _).mpr h₂ RB.hregion_nd
+        · apply (list_not_nodupes _).mpr h₂
           apply (list_nodupes_append_singleton_iff _ _).mpr
           constructor
           · exact fun cmem' ↦ region_builder_notmem_pending_and_unvisited RB c ⟨cmem', cmem⟩
@@ -443,7 +443,8 @@ def region_builder_try_add_cell (RB : RegionBuilder) (a c : Int × Int)
           rcases List.mem_append.mp memr with lhs | rhs
           · exact region_builder_notmem_region_and_pending RB d ⟨meml, lhs⟩
           · exact region_builder_notmem_region_and_unvisited RB c ⟨(List.mem_singleton.mp rhs) ▸ meml, cmem⟩
-      · exact h₁ (list_nodupes_erase_of_nodupes _ (RB.hunvisited_nd) _)
+      · rw [← list_not_nodupes] at h₁
+        exact h₁ (list_nodupes_erase_of_nodupes _ (RB.hunvisited_nd) _)
       · rcases h₁ with ⟨d, meml, memr⟩
         have memr' : d ∈ RB.unvisited := List.erase_subset memr
         rcases List.mem_append.mp meml with lhs | rhs
@@ -672,19 +673,23 @@ def region_builder_add_pending_of_ne_nil (RB : RegionBuilder) (hnnil : RB.pendin
     RB.hunvisited_nd
   hnodupes := by
     by_contra! h₀
-    rcases list_nodupes_append_dupes_iff.mp h₀ with h₁ | h₁ | h₁
-    · rcases list_nodupes_append_dupes_iff.mp h₁ with h₂ | h₂ | h₂
-      · exact h₂ ((list_nodupes_cons_iff _ _).mpr ⟨
+    rw [list_not_nodupes] at h₀
+    rcases list_has_dupes_append_iff.mp h₀ with h₁ | h₁ | h₁
+    · rcases list_has_dupes_append_iff.mp h₁ with h₂ | h₂ | h₂
+      · rw [← list_not_nodupes] at h₂
+        exact h₂ ((list_nodupes_cons_iff _ _).mpr ⟨
           fun h ↦ region_builder_notmem_region_and_pending _ _ ⟨h, List.head_mem hnnil⟩,
           RB.hregion_nd⟩)
-      · exact h₂ (((list_nodupes_cons_iff _ _).mp ((List.head_cons_tail RB.pending hnnil) ▸ RB.hpending_nd)).2)
+      · rw [← list_not_nodupes] at h₂
+        exact h₂ (((list_nodupes_cons_iff _ _).mp ((List.head_cons_tail RB.pending hnnil) ▸ RB.hpending_nd)).2)
       · rcases h₂ with ⟨a, lmem, rmem⟩
         rcases List.mem_cons.mp lmem with h₃ | h₃
         · subst h₃
           exact ((list_nodupes_head_tail_iff RB.pending hnnil).mp RB.hpending_nd).1 rmem
         · apply region_builder_notmem_region_and_pending RB a
           exact ⟨h₃, List.mem_of_mem_tail rmem⟩
-    · exact h₁ RB.hunvisited_nd
+    · rw [← list_not_nodupes] at h₁
+      exact h₁ RB.hunvisited_nd
     · rcases h₁ with ⟨a, lmem, rmem⟩
       rcases List.mem_append.mp lmem with h₁ | h₁
       · rcases List.mem_cons.mp h₁ with h₂ | h₂
