@@ -3,6 +3,7 @@ import Mathlib.Data.List.Basic
 import AngelDevil.Basic
 import AngelDevil.Misc
 import AngelDevil.Unit
+import AngelDevil.Dupes
 
 set_option linter.style.longLine false
 
@@ -25,6 +26,9 @@ instance : DecidableEq RunState := fun a b ↦
 -- parameters as Int × Int
 def loc (rs : RunState) : Int × Int := ⟨rs.x, rs.y⟩
 def dir (rs : RunState) : Int × Int := rs.u
+
+-- Get the wall adjacent to a given run state
+def left_of_runner (rs : RunState) : (Int × Int) := ⟨rs.x - rs.u.y, rs.y + rs.u.x⟩
 
 /- Move forward one cell, turn left, and move forward one cell again.
    Note that for the purposes of counting traversed walls, this counts
@@ -61,6 +65,78 @@ def next_step (blocked : List (Int × Int)) (rs : RunState) : RunState :=
   if loc (turn_left rs) ∉ blocked then turn_left rs else
   if loc (move_forward rs) ∉ blocked then move_forward rs else
   turn_right rs
+
+-- The inverse of 'turn_left'
+def undo_turn_left (rs : RunState) : RunState where
+  x := rs.x - rs.u.x - rs.u.y
+  y := rs.y + rs.u.x - rs.u.y
+  u := UVec.mk (rs.u.y) (-rs.u.x) (by
+    simp; rw [add_comm]; exact rs.u.unit
+  )
+
+-- The inverse of 'move_forward'
+def undo_move_forward (rs : RunState) : RunState where
+  x := rs.x - rs.u.x
+  y := rs.y - rs.u.y
+  u := rs.u
+
+-- The inverse of 'turn_right'
+def undo_turn_right (rs : RunState) : RunState where
+  x := rs.x
+  y := rs.y
+  u := UVec.mk (-rs.u.y) rs.u.x (by
+    simp; rw [add_comm]; exact rs.u.unit
+  )
+
+def undo_next_step (blocked : List (Int × Int)) (rs : RunState) : RunState :=
+  if loc (undo_turn_left rs) ∉ blocked then undo_turn_left rs else
+  if loc (undo_move_forward rs) ∉ blocked then undo_move_forward rs else
+  undo_turn_right rs
+
+-- 'turn_left' and 'undo_turn_left' are in-fact inverses
+lemma turn_left_undo_cancel (rs : RunState) :
+  undo_turn_left (turn_left rs) = rs := by
+  unfold undo_turn_left turn_left; simp
+
+-- 'move_forward' and 'undo_move_forward' are in-fact inverses
+lemma move_forward_undo_cancel (rs : RunState) :
+  undo_move_forward (move_forward rs) = rs := by
+  unfold undo_move_forward move_forward; simp
+
+-- 'turn_right' and 'undo_turn_right' are in-fact inverses
+lemma turn_right_undo_cancel (rs : RunState) :
+  undo_turn_right (turn_right rs) = rs := by
+  unfold undo_turn_right turn_right; simp
+
+-- 'next_step' and 'undo_next_step' are inverses, conditional on
+-- the cell to the runner's left being blocked and the initial
+-- cell *not* being blocked.
+lemma next_step_undo_cancel
+  (blocked : List (Int × Int)) (rs : RunState)
+  (hsafe : (loc rs) ∉ blocked) (hblocked : left_of_runner rs ∈ blocked) :
+  undo_next_step blocked (next_step blocked rs) = rs := by
+  unfold next_step
+  split_ifs with _ _
+  · unfold undo_next_step
+    have h₂ : ¬loc (undo_turn_left (turn_right rs)) ∉ blocked := by
+      unfold turn_right undo_turn_left; push_neg; simp
+      rwa [← add_sub_right_comm, add_right_comm _ rs.u.y]
+    have h₃ : ¬loc (undo_move_forward (turn_right rs)) ∉ blocked := by
+      unfold turn_right undo_move_forward; push_neg; simp
+      exact hblocked
+    rw [if_neg h₂, if_neg h₃, turn_right_undo_cancel]
+  · unfold undo_next_step
+    have h₂ : ¬loc (undo_turn_left (move_forward rs)) ∉ blocked := by
+      unfold undo_turn_left move_forward; push_neg; simp
+      rw [add_sub_right_comm, add_sub_cancel_right]
+      exact hblocked
+    have h₃ : loc (undo_move_forward (move_forward rs)) ∉ blocked := by
+      rwa [move_forward_undo_cancel]
+    rw [if_neg h₂, if_pos h₃, move_forward_undo_cancel]
+  · unfold undo_next_step
+    have h₂ : loc (undo_turn_left (turn_left rs)) ∉ blocked := by
+      rwa [turn_left_undo_cancel]
+    rw [if_pos h₂, turn_left_undo_cancel]
 
 -- The "distance" between consecutive states in a trace is no greater than 1
 lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
@@ -149,9 +225,6 @@ lemma next_step_intermediate_value_x (blocked : List (Int × Int)) (rs : RunStat
   have hleone : rs.x - (next_step blocked rs).x ≤ 1 :=
     (Int.natAbs_of_nonneg (Int.sub_nonneg.mpr hle)) ▸ (Nat.cast_le.mpr ub)
   exact (hhelper hle hleone lex xle).symm
-
--- Get the wall adjacent to a given run state
-def left_of_runner (rs : RunState) : (Int × Int) := ⟨rs.x - rs.u.y, rs.y + rs.u.x⟩
 
 -- In order to produce a valid trace, the runner must begin on a
 -- cell that isn't blocked, with a blocked cell to its left.
@@ -760,3 +833,110 @@ lemma trace_unchanged_of_block_unvisited_cells
   rw [← trace_getElem_recurrence]; swap
   · rwa [Nat.sub_one_add_one npnz]
   apply List.getElem_mem
+
+-- If the trace starts next to a wall, it will always be next to a wall
+-- Note that this result could also be proven as a special case of
+-- 'edge_of_runner_mem_region_edges' (from Perimeter.lean) but that would
+-- have introduced dependency issues because Perimeter.lean depends on Trace.lean
+lemma trace_wall_blocked_of_valid (n : Nat) (start : RunState) (blocked : List (Int × Int)) :
+  run_start_valid blocked start → ∀ rs ∈ trace n start blocked, left_of_runner rs ∈ blocked := by
+  intro hvalid rs rsmem
+  by_cases nz : n = 0
+  · subst nz
+    rw [trace_nil] at rsmem
+    exact False.elim (List.not_mem_nil rsmem)
+  rename' nz => nnz; push_neg at nnz
+  rcases List.getElem_of_mem rsmem with ⟨i, ilt, rfl⟩
+  have hnnil : trace n start blocked ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.pos_of_ne_zero nnz
+  by_cases iz : i = 0
+  · subst iz
+    rw [trace_getElem_zero_of_nonnil n start blocked hnnil]
+    exact hvalid.2
+  rename' iz => inz; push_neg at inz
+  have ilt' : i < n := by rwa [trace_length] at ilt
+  rw [trace_getElem_recurrence' n start blocked i (Nat.pos_of_ne_zero inz) ilt']
+  -- Let rs' be the run state prior to the cell in question
+  let rs' := (trace n start blocked)[i - 1]'(lt_of_le_of_lt (Nat.sub_le _ _) ilt)
+  change left_of_runner (next_step blocked rs') ∈ blocked
+  -- Use recursion to prove that rs' has a wall to its left
+  have hvalid' : left_of_runner rs' ∈ blocked := by
+    unfold rs'
+    rw [trace_getElem_getLast]
+    apply trace_wall_blocked_of_valid i start blocked hvalid
+    have hnnil' : trace (i - 1 + 1) start blocked ≠ [] := by
+      apply List.ne_nil_of_length_pos
+      rw [trace_length, Nat.sub_one_add_one inz]
+      exact Nat.pos_of_ne_zero inz
+    convert List.getLast_mem hnnil'
+    rw [Nat.sub_one_add_one inz]
+  unfold next_step
+  split_ifs with h₀ h₁
+  · unfold loc move_forward at h₁; dsimp at h₁
+    unfold left_of_runner turn_right; dsimp
+    rwa [sub_neg_eq_add]
+  · unfold loc turn_left at h₀; dsimp at h₀
+    unfold left_of_runner move_forward; dsimp
+    rwa [Int.add_right_comm]
+  · unfold left_of_runner at hvalid'
+    unfold left_of_runner turn_left; dsimp
+    rw [sub_right_comm, add_sub_assoc, sub_self, add_zero]
+    rwa [← sub_eq_add_neg, add_sub_assoc, sub_self, add_zero]
+
+-- If a trace loops, the first state to repeat is the initial state.
+lemma trace_start_is_first_dupe (n : Nat) (start : RunState) (blocked : List (Int × Int))
+  (hdupe : list_has_dupes (trace n start blocked)) (hvalid : run_start_valid blocked start) :
+  (trace n start blocked)[find_first_dupe (trace n start blocked) (list_ne_nil_of_has_dupes _ hdupe)] = start := by
+  have hnnil : trace n start blocked ≠ [] := list_ne_nil_of_has_dupes _ hdupe
+  -- Start by getting the locations of the duplicates:
+  have := first_dupe_is_dupe _ hdupe; dsimp at this
+  rcases this with ⟨i, ilt, hij⟩
+  let j := (find_first_dupe (trace n start blocked) hnnil).1
+  -- Prove a bunch of useful inequalities, etc.
+  let jlt : j < (trace n start blocked).length :=
+    (find_first_dupe (trace n start blocked) hnnil).2
+  have jlt' : j < n := by rwa [trace_length] at jlt
+  have jpos : 0 < j := Nat.zero_lt_of_lt ilt
+  have ilt' : i < (trace n start blocked).length := lt_trans ilt jlt
+  have ilt'' : i < n := by rwa [trace_length] at ilt'
+  -- Make 'ilt' and 'hij' a bit nicer to work with
+  change i < j at ilt
+  change (trace n start blocked)[i]'(lt_trans ilt jlt) = (trace n start blocked)[j]'(jlt) at hij
+  -- First handle the case where i = 0
+  by_cases iz : i = 0
+  · subst iz
+    rw [trace_getElem_zero_of_nonnil n start blocked hnnil] at hij
+    exact hij.symm
+  rename' iz => inz; push_neg at inz
+  -- Prove some move inequalities on 'i' and 'j' now that we can assume i ≠ 0
+  have ipos : 0 < i := Nat.pos_of_ne_zero inz
+  have iplt : i - 1 < j - 1 :=
+    Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt
+  have jplt : j - 1 < (trace n start blocked).length :=
+    lt_of_le_of_lt (Nat.sub_le _ _) jlt
+  have iplt' : i - 1 < (trace n start blocked).length :=
+    lt_trans iplt jplt
+  -- Now we will achieve a contradiction by showing that some earlier duplicate must exist
+  -- Start by setting up the goal 'j ≤ j - 1'
+  apply False.elim (Nat.not_le.mpr (Nat.sub_lt (Nat.zero_lt_of_lt ilt) (one_pos)) _)
+  -- In particular will show that the i-1st and j-1st elements must match
+  apply first_dupe_is_first (trace n start blocked) hdupe (i - 1) (j - 1) iplt jplt
+  rw [trace_getElem_recurrence' n start blocked i ipos ilt''] at hij
+  rw [trace_getElem_recurrence' n start blocked j jpos jlt'] at hij
+  -- Prove that the cells at steps 'i' and 'j' are unblocked while the cells
+  -- to the runner's left on those steps *are* blocked. These conditions
+  -- are required to cancel 'next_step' with 'undo_next_step'.
+  have tip : loc ((trace n start blocked)[i - 1]'iplt') ∉ blocked :=
+    trace_avoids_blocked n start blocked hvalid.1 _ (List.getElem_mem _)
+  have tjp : loc ((trace n start blocked)[j - 1]'jplt) ∉ blocked :=
+    trace_avoids_blocked n start blocked hvalid.1 _ (List.getElem_mem _)
+  have lorip : left_of_runner ((trace n start blocked)[i - 1]'iplt') ∈ blocked :=
+    trace_wall_blocked_of_valid n start blocked hvalid _ (List.getElem_mem _)
+  have lorjp : left_of_runner ((trace n start blocked)[j - 1]'jplt) ∈ blocked :=
+    trace_wall_blocked_of_valid n start blocked hvalid _ (List.getElem_mem _)
+  -- Apply 'undo_next_step' to 'hij' and cancel
+  convert congrArg (undo_next_step blocked) hij
+  · exact (next_step_undo_cancel blocked _ tip lorip).symm
+  · exact (next_step_undo_cancel blocked _ tjp lorjp).symm
