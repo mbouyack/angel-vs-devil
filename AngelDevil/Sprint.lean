@@ -19,7 +19,7 @@ abbrev sprint_end_fun (p : Nat) (start : RunState) (blocked : List (Int × Int))
 -- length of 2p + 1 (not just '2p', as I had mistakenly stated previously).
 def sprint (p : Nat) (start : RunState) (blocked : List (Int × Int)) : List RunState :=
   trace (if (∃ rs : RunState, rs ∈ trace (2 * p + 1) start blocked ∧ ¬close p (loc start) (loc rs)) then
-  (_find_first (sprint_end_fun p start blocked)) else (2 * p + 1)) start blocked
+  (find_first (sprint_end_fun p start blocked) ((Nat.add_one_ne_zero _))) else (2 * p + 1)) start blocked
 
 lemma sprint_getElem_zero_of_nonnil (p : Nat) (start : RunState) (blocked : List (Int × Int)) :
   (hnnil : sprint p start blocked ≠ []) →
@@ -38,7 +38,7 @@ lemma sprint_nonnil (p : Nat) (start : RunState) (blocked : List (Int × Int)) :
     intro hfind
     have : sprint_end_fun p start blocked 0 := by
       rw [← Fin.val_eq_zero_iff.mp hfind]
-      apply _find_first_is_sat
+      apply find_first_is_sat
       rcases List.getElem_of_mem rsmem with ⟨i, ilt, hirs⟩
       let i' : Fin (2 * p + 1) := ⟨i, by rwa [trace_length] at ilt⟩
       use i'
@@ -88,7 +88,7 @@ lemma sprint_length_lb (p : Nat) (start : RunState) (blocked : List (Int × Int)
     apply this _ ltp
     -- '_find_first_is_sat' completes the goal, but we still need to show
     -- that there exists at least one cell in the trace which is not close
-    apply _find_first_is_sat
+    apply find_first_is_sat
     rcases h with ⟨rs, rsmem, h⟩
     rcases List.getElem_of_mem rsmem with ⟨i, ilt, hirs⟩
     have ilt' : i < 2 * p + 1 := by
@@ -154,7 +154,7 @@ lemma sprint_close_mem_head (p : Nat) (start : RunState) (blocked : List (Int ×
     use (trace (2 * p + 1) start blocked)[i]'(by rwa [trace_length])
     use List.getElem_mem (by rwa [trace_length])
   rw [if_pos hthen, trace_length] at ilt
-  have := _find_first_is_first (sprint_end_fun p start blocked) i' h
+  have := find_first_is_first (sprint_end_fun p start blocked) i' h
   exact Nat.not_lt.mpr this ilt
 
 -- Prove that the first and last cells in a sprint are "close"
@@ -192,7 +192,7 @@ lemma sprints_match_of_traces_match
     have h₁ : ∃ rs ∈ trace (2 * p + 1) start blocked₁, ¬close p (loc start) (loc rs) :=
       ⟨rs, htrace ▸ rsmem, hfar⟩
     rw [if_pos h₁]
-    let n₀ := _find_first (sprint_end_fun p start blocked₀)
+    let n₀ := find_first (sprint_end_fun p start blocked₀) (Nat.add_one_ne_zero _)
     convert htraces n₀.val (le_of_lt n₀.prop) using 2
     apply (Fin.val_eq_val _ _).mpr
     congr; ext i

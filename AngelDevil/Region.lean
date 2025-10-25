@@ -766,13 +766,13 @@ def region_builder_add_pending_of_ne_nil (RB : RegionBuilder) (hnnil : RB.pendin
       -- To handle the case where pending.head appears more than once
       -- in the path, we'll need to get the last instance.
       rcases List.getElem_of_mem hheadin with ⟨i, ilt, hri⟩
-      let j := (_find_last f).1
-      let jlt : j < P.route.length - 1 + 1 := (_find_last f).2
+      let j := (find_last f (Nat.add_one_ne_zero _)).1
+      let jlt : j < P.route.length - 1 + 1 := (find_last f (Nat.add_one_ne_zero _)).2
       rw [Nat.sub_one_add_one lennz] at jlt
       have fsat : ∃ x, f x :=
         ⟨⟨i, by rwa [Nat.sub_one_add_one lennz]⟩, hri.symm⟩
       have hrj : P.route[j]'jlt = RB.pending.head hnnil :=
-        (_find_last_is_sat f fsat).symm
+        (find_last_is_sat f fsat).symm
       -- If i + 1 = P.route.length, a = RB.pending.head, which is a contradiction
       have jslt : j + 1 < P.route.length := by
         apply Nat.add_lt_of_lt_sub (Nat.lt_of_le_of_ne (Nat.le_sub_one_of_lt jlt) _)
@@ -797,7 +797,7 @@ def region_builder_add_pending_of_ne_nil (RB : RegionBuilder) (hnnil : RB.pendin
         -- Use the fact that 'j' should be the last location of
         -- pending.head in P to get a contradiction
         have hk1le : k + (j + 1) ≤ j := by
-          have := Fin.val_le_of_le (_find_last_is_last f ⟨k + (j + 1), kh1lt⟩ hrk.symm)
+          have := Fin.val_le_of_le (find_last_is_last f ⟨k + (j + 1), kh1lt⟩ hrk.symm)
           simp at this
           exact this
         absurd hk1le; push_neg

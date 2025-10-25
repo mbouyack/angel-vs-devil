@@ -221,7 +221,7 @@ def find_cell_fin_cast' (N : Nat) (i : Fin ((2 * N + 1) ^ 2)) : Fin ((2 * N + 1)
 -- Search the escape square for a cell which satisfies 'f'
 def find_cell_in_square (N : Nat) (f : (Int × Int) → Prop) [DecidablePred f] : (Int × Int) :=
   square_iter N (find_cell_fin_cast N
-  (_find_first (fun i ↦ f (square_iter N (find_cell_fin_cast N i)))))
+  (find_first (fun i ↦ f (square_iter N (find_cell_fin_cast N i))) (Nat.add_one_ne_zero _)))
 
 -- The cell found by "find_cell_in_square" does in-fact satisfy 'f'
 lemma cell_in_square_is_sat (N : Nat) (f : (Int × Int) → Prop) [DecidablePred f]
@@ -235,7 +235,7 @@ lemma cell_in_square_is_sat (N : Nat) (f : (Int × Int) → Prop) [DecidablePred
     use i'
     unfold f' i' find_cell_fin_cast find_cell_fin_cast'; simp
     rwa [hiter]
-  exact _find_first_is_sat f' exsat'
+  exact find_first_is_sat f' exsat'
 
 -- The cell found by "find_cell_in_square" is in-fact close to the origin
 lemma cell_in_square_is_close (N : Nat) (f : (Int × Int) → Prop) [DecidablePred f] :

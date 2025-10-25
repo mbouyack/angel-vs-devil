@@ -48,16 +48,16 @@ lemma extended_perimeter (D : Devil) (p : Nat) (N : Nat) (htraps : traps_in_squa
     rw [last, cell_congr_idx A h (Nat.lt_add_one _), journey_start, dist_self] at Nlt
     exact not_lt_zero' Nlt
   -- Get the index of the first cell outside the escape square (call it 'k')
-  let k := (_find_first (outside_fun A N))
+  let k := (find_first (outside_fun A N) (Nat.add_one_ne_zero _))
   -- The kth cell is in-fact outside the escape square
   have ksat : N < dist (0, 0) (last (subjourney A k.val k.2)) := by
     rw [subjourney_last_cell]
-    exact _find_first_is_sat (outside_fun A N) ⟨⟨steps A, Nat.lt_add_one _⟩, Nlt⟩
+    exact find_first_is_sat (outside_fun A N) ⟨⟨steps A, Nat.lt_add_one _⟩, Nlt⟩
   -- The kth cell is the *first* step outside the escape square
   have kfirst : ∀ i (ilt : i < steps A + 1),
     N < dist (0, 0) (cell A i ilt) → k.val ≤ i := by
     intro i ilt houtside
-    exact Fin.le_iff_val_le_val.mp (_find_first_is_first (outside_fun A N) ⟨i, ilt⟩ houtside)
+    exact Fin.le_iff_val_le_val.mp (find_first_is_first (outside_fun A N) ⟨i, ilt⟩ houtside)
   -- Handle the case where the first step outside the escape square
   -- is not the last step of the journey.
   by_cases knl : k.val ≠ steps A
@@ -118,7 +118,7 @@ lemma extended_perimeter (D : Devil) (p : Nat) (N : Nat) (htraps : traps_in_squa
 termination_by (steps A)
 decreasing_by
   rw [subjourney_steps]
-  exact Nat.lt_of_le_of_ne (Nat.le_of_lt_add_one ((_find_first (outside_fun A N)).2)) knl
+  exact Nat.lt_of_le_of_ne (Nat.le_of_lt_add_one ((find_first (outside_fun A N) (Nat.add_one_ne_zero _)).2)) knl
 
 -- Prove that our two definitions of devil victory are equivalent
 lemma devil_wins_equiv (p : Nat) :

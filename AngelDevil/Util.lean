@@ -3,7 +3,6 @@ import Mathlib.Tactic.Linarith
 -- TODO: Figure out a more appropriate import (rather than 'Linarith')
 
 set_option linter.style.longLine false
-set_option linter.style.multiGoal false
 
 -- Useful helper function for adding one to the value of a 'Fin'
 -- if it is not "last"
@@ -113,122 +112,119 @@ instance {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] : Decidable (_ca
   unfold _can_sat
   exact if h : _can_sat_impl f 0 then isTrue h else isFalse h
 
--- Improved find
--- (simpler implementation / proofs and no requirement for a satisfying index)
+-- Improved, improved find (don't require "Fin (n + 1)")
 
-def _find_first_impl {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (start : Fin (n + 1)) : Fin (n+1) :=
-  if (f start) then start else
-  if hinl : start ≠ Fin.last n then _find_first_impl f (start+1) else 0
-termination_by ((n+1) - start.val)
-decreasing_by
-  rw [Fin.val_add_one_of_lt (Fin.lt_last_iff_ne_last.mpr hinl), Nat.sub_add_eq]
-  exact Nat.sub_lt (Nat.sub_pos_iff_lt.mpr start.2) Nat.zero_lt_one
+def find_first {n : Nat} (f : Fin n → Prop) [DecidablePred f] (nnz : n ≠ 0) : Fin n :=
+  if hn1 : n = 1 then ⟨0, Nat.pos_of_ne_zero nnz⟩ else
+  if f ⟨0, Nat.pos_of_ne_zero nnz⟩ then ⟨0, Nat.pos_of_ne_zero nnz⟩ else
+  Fin.cast (Nat.sub_one_add_one nnz) (find_first
+    (fun (i : Fin (n - 1)) ↦ f (Fin.cast (Nat.sub_one_add_one nnz) i.succ))
+    (by
+      push_neg at hn1
+      have onelt : 1 < n :=
+        lt_of_le_of_ne (Nat.one_le_of_lt (Nat.pos_of_ne_zero nnz)) hn1.symm
+      exact Nat.sub_ne_zero_of_lt onelt)
+  ).succ
 
-def _find_first {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] : Fin (n+1) :=
-  _find_first_impl f 0
-
--- Prove that no element which satisfies 'f' appears earlier than
--- the one returned by 'find_first_impl' but not earlier than 'start'
-lemma _find_first_is_first_impl {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (start : Fin (n + 1)) :
-  ∀ i, start ≤ i → f i → _find_first_impl f start ≤ i := by
-  intro i ige isat
-  unfold _find_first_impl
+-- Prove that the element returned by 'find_first' actually satisfies 'f'
+lemma find_first_is_sat {n : Nat} (f : Fin n → Prop) [DecidablePred f] (exsat : ∃ i, f i) :
+  f (find_first f (by obtain ⟨i, _⟩ := exsat; exact Nat.ne_zero_of_lt (Fin.pos i))) := by
+  unfold find_first
+  rcases exsat with ⟨i, isat⟩
+  have nnez : n ≠ 0 := Nat.ne_zero_of_lt (Fin.pos i)
   split_ifs with h₀ h₁
-  · assumption
-  · -- Prove the necessary inequalities
-    have ins : i ≠ start := by
-      intro is
-      rw [is] at isat
-      contradiction
-    have ssle : start + 1 ≤ i := by
-      apply Fin.add_one_le_of_lt
-      exact Fin.lt_iff_val_lt_val.mpr (lt_of_le_of_ne (Fin.le_iff_val_le_val.mp ige) (Fin.val_ne_iff.mpr ins.symm))
-    -- Recurse to complete the goal
-    exact _find_first_is_first_impl f (start+1) i ssle isat
-  · exact Fin.zero_le _
-termination_by ((n+1) - start.val)
-decreasing_by
-  rw [Fin.val_add_one_of_lt (Fin.lt_last_iff_ne_last.mpr h₁), Nat.sub_add_eq]
-  exact Nat.sub_lt (Nat.sub_pos_iff_lt.mpr start.2) Nat.zero_lt_one
+  · convert isat
+  · exact h₁
+  · -- Define f' to be the function used in the recursion step then recurse
+    let f' := fun (i : Fin (n - 1)) ↦ f (Fin.cast (Nat.sub_one_add_one nnez) i.succ)
+    apply find_first_is_sat f'
+    -- Prove some inequalities on i
+    have inez : i.val ≠ 0 := by
+      symm; contrapose! h₁
+      convert isat
+    have iplt : i.val - 1 < n - 1 :=
+      Nat.sub_lt_sub_right (Nat.one_le_of_lt (Nat.pos_of_ne_zero inez)) i.2
+    -- Now show that i-1 satisfies f'
+    use Fin.mk (i.val - 1) iplt
+    unfold f'
+    convert isat
+    apply (Fin.val_eq_val _ _).mp; simp
+    exact Nat.sub_one_add_one inez
 
 -- Prove that no element which satisfies 'f' appears earlier than
 -- the one returned by 'find_first'
-lemma _find_first_is_first {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] :
-  ∀ i, f i → _find_first f ≤ i :=
-  fun i isat ↦ _find_first_is_first_impl f 0 i (Fin.zero_le _) isat
-
--- Prove that the element returned by 'find_first_impl' actually satisfies 'f'
-lemma _find_first_is_sat_impl {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f]
-  (start : Fin (n + 1)) (exsat : ∃ i, start ≤ i ∧ f i) : f (_find_first_impl f start) := by
-  rcases exsat with ⟨i, ige, isat⟩
-  unfold _find_first_impl
-  split_ifs with h₀ h₁
-  · assumption
-  · -- Prove the necessary inequalities
-    have ins : i ≠ start := by
-      intro is
-      rw [is] at isat
-      contradiction
-    have ssle : start + 1 ≤ i := by
-      apply Fin.add_one_le_of_lt
-      exact Fin.lt_iff_val_lt_val.mpr (lt_of_le_of_ne (Fin.le_iff_val_le_val.mp ige) (Fin.val_ne_iff.mpr ins.symm))
-    -- Recurse to complete the goal
-    exact _find_first_is_sat_impl f (start+1) ⟨i, ssle, isat⟩
-  · -- If we reach the end of the search without finding
-    -- a satisfying index, that implies a contradiction
-    push_neg at h₁
-    have hil := Fin.last_le_iff.mp (h₁ ▸ ige)
-    rw [hil] at isat
-    rw [h₁] at h₀
-    contradiction
-termination_by ((n+1) - start.val)
-decreasing_by
-  rw [Fin.val_add_one_of_lt (Fin.lt_last_iff_ne_last.mpr h₁), Nat.sub_add_eq]
-  exact Nat.sub_lt (Nat.sub_pos_iff_lt.mpr start.2) Nat.zero_lt_one
-
--- Prove that the element returned by 'find_first' actually satisfies 'f'
-lemma _find_first_is_sat {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (exsat : ∃ i, f i) :
-  f (_find_first f) := by
-  rcases exsat with ⟨i, isat⟩
-  exact _find_first_is_sat_impl f 0 ⟨i, Fin.zero_le _, isat⟩
-
--- Implment '_find_last' by reversing the direction of search with '_find_first'
-def _find_last {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] : Fin (n+1) :=
-  Fin.last n - (_find_first (fun i ↦ f ((Fin.last n) - i)))
-
-lemma _find_last_is_last {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] :
-  ∀ i, f i → i ≤ _find_last f := by
-  intro i h
-  unfold _find_last
-  -- Most of this is just manipulating the inequality
-  -- so that we can apply '_find_first_is_first'
-  apply Fin.le_iff_val_le_val.mpr
-  rw [Fin.sub_val_of_le]; swap
-  · exact Nat.le_of_lt_add_one (Fin.prop _)
-  apply Nat.le_sub_of_add_le
-  rw [add_comm]
-  apply Nat.add_le_of_le_sub
-  · exact Fin.le_iff_val_le_val.mpr (Fin.le_last _)
-  rw [← Fin.sub_val_of_le (Fin.le_last _)]
+lemma find_first_is_first {n : Nat} (f : Fin n → Prop) [DecidablePred f] :
+  ∀ i, f i → find_first f (Nat.ne_zero_of_lt (Fin.pos i)) ≤ i := by
+  intro i isat
+  have nnez : n ≠ 0 := Nat.ne_zero_of_lt (Fin.pos i)
+  unfold find_first
+  split_ifs with h₀ h₁; repeat apply Fin.le_iff_val_le_val.mpr; simp
+  -- Prove some inequalities on i
+  have inez : i.val ≠ 0 := by
+    symm; contrapose! h₁
+    convert isat
+  have onele : 1 ≤ i.val := Nat.one_le_of_lt (Nat.pos_of_ne_zero inez)
+  have iplt : i.val - 1 < n - 1 :=
+    Nat.sub_lt_sub_right onele i.2
+  -- Rearrange the goal so we can apply recursion
+  apply Nat.add_le_of_le_sub onele
+  rw [← Fin.val_mk iplt]
   apply Fin.le_iff_val_le_val.mp
-  apply _find_first_is_first
-  convert h
-  -- Now switch back to Nat again to finish the goal
+  apply find_first_is_first
+  convert isat
+  apply (Fin.val_eq_val _ _).mp; simp
+  exact Nat.sub_one_add_one inez
+
+-- Implment 'find_last' by reversing the direction of search with 'find_first'
+def find_last {n : Nat} (f : Fin n → Prop) [DecidablePred f] (nnz : n ≠ 0) : Fin n :=
+  ⟨n - 1, Nat.sub_one_lt nnz⟩ - (find_first (fun i ↦ f (⟨n - 1, Nat.sub_one_lt nnz⟩ - i)) nnz)
+
+-- Proving that (a - (a - b)) = b is non-trivial when working with 'Fin'
+lemma fin_sub_sub_self {n : Nat} (nnez : n ≠ 0) (i : Fin n) :
+  ⟨n - 1, Nat.sub_one_lt nnez⟩ - (⟨n - 1, Nat.sub_one_lt nnez⟩ - i) = i := by
+  have ile : i ≤ ⟨n - 1, Nat.sub_one_lt nnez⟩ := Nat.le_sub_one_of_lt i.2
   apply (Fin.val_eq_val _ _).mp
-  rw [Fin.sub_val_of_le (Fin.le_last _), Fin.sub_val_of_le (Fin.le_last _)]
-  rw [Nat.sub_sub_self (Fin.le_last _)]
+  rw [Fin.sub_val_of_le]
+  · rw [Fin.sub_val_of_le ile]
+    exact Nat.sub_sub_self ile
+  · apply Fin.le_iff_val_le_val.mpr
+    rw [Fin.sub_val_of_le ile]
+    simp
 
 -- Prove that the element returned by 'find_last' actually satisfies 'f'
-lemma _find_last_is_sat {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (exsat : ∃ i, f i) :
-  f (_find_last f) := by
-  unfold _find_last
+lemma find_last_is_sat {n : Nat} (f : Fin n → Prop) [DecidablePred f] (exsat : ∃ i, f i) :
+  f (find_last f (by obtain ⟨i, _⟩ := exsat; exact Nat.ne_zero_of_lt (Fin.pos i))) := by
   rcases exsat with ⟨i, isat⟩
-  apply _find_first_is_sat (fun i ↦ f ((Fin.last n) - i))
-  use (Fin.last n - i)
+  have nnez : n ≠ 0 := Nat.ne_zero_of_lt (Fin.pos i)
+  unfold find_last
+  let np : Fin n := ⟨n - 1, Nat.sub_one_lt nnez⟩
+  apply find_first_is_sat (fun i ↦ f (np - i))
+  use np - i;
   convert isat
-  apply (Fin.val_eq_val _ _).mp
-  rw [Fin.sub_val_of_le (Fin.le_last _), Fin.sub_val_of_le (Fin.le_last _)]
-  rw [Nat.sub_sub_self (Fin.le_last _)]
+  exact fin_sub_sub_self nnez _
+
+-- Prove that no element which satisfies 'f' appears later than
+-- the one returned by 'find_last'
+lemma find_last_is_last {n : Nat} (f : Fin n → Prop) [DecidablePred f] :
+  ∀ i, f i → i ≤ find_last f (Nat.ne_zero_of_lt (Fin.pos i)) := by
+  intro i isat
+  have nnez : n ≠ 0 := Nat.ne_zero_of_lt (Fin.pos i)
+  unfold find_last
+  -- Manipulate the goal into a form where we can use 'find_first_is_first'
+  apply Fin.le_iff_val_le_val.mpr
+  rw [Fin.sub_val_of_le]; swap
+  · apply Fin.le_iff_val_le_val.mpr; simp
+    exact Nat.le_sub_one_of_lt (Fin.prop _)
+  apply Nat.le_sub_of_add_le
+  rw [add_comm]
+  have ile : i ≤ ⟨n - 1, Nat.sub_one_lt nnez⟩ := Nat.le_sub_one_of_lt i.2
+  apply Nat.add_le_of_le_sub ile
+  rw [← Fin.sub_val_of_le ile]
+  apply Fin.le_iff_val_le_val.mp
+  -- Finally, apply find_first_is_first
+  apply find_first_is_first
+  convert isat
+  exact fin_sub_sub_self nnez _
 
 -- Narrows the domain of a function on 'Fin' by one
 abbrev narrow_fin_fun {n : Nat} (f : Fin (n + 1) → Prop) [DecidablePred f] (nnz : n ≠ 0) : Fin (n - 1 + 1) → Prop :=

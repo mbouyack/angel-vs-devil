@@ -342,16 +342,13 @@ lemma list_rm_dupes_length_le {α : Type} [DecidableEq α] (L : List α) :
     · rw [List.length_cons]
       exact Nat.add_le_add_right (list_rm_dupes_length_le xs) _
 
-abbrev list_has_dupe_fin {α : Type} [DecidableEq α] (L : List α) : Fin (L.length - 1 + 1) → Prop :=
+abbrev list_has_dupe_fin {α : Type} [DecidableEq α] (L : List α) : Fin L.length → Prop :=
   fun i ↦ list_has_dupes (L.take (i.val + 1))
 
 -- Any duplicate in L will satisfy 'list_has_dupe_fin'
 lemma list_has_dupe_fin_of_dupe {α : Type} [DecidableEq α] (L : List α) :
   ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
-  list_has_dupe_fin L (Fin.mk j (by
-    rwa [Nat.sub_one_add_one]
-    exact Nat.ne_zero_of_lt jlt
-  )) := by
+  list_has_dupe_fin L (Fin.mk j jlt) := by
   intro i j ilt jlt hij
   use i, j, ilt, (by
     rw [List.length_take_of_le (Nat.add_one_le_of_lt jlt)]
@@ -367,8 +364,7 @@ lemma list_ne_nil_of_has_dupes
 
 -- Find the first element which appears earlier in the list
 def find_first_dupe {α : Type} [DecidableEq α] (L : List α) (hnnil : L ≠ []) : Fin L.length :=
-  Fin.cast (Nat.sub_one_add_one (Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)))
-  (_find_first (list_has_dupe_fin L))
+  find_first (list_has_dupe_fin L) (Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil))
 
 -- Prove that the dupe found by 'find_first_dupe' is in-fact first
 -- Note that the second element of the pair is used to determine the order.
@@ -376,11 +372,7 @@ lemma first_dupe_is_first {α : Type} [DecidableEq α] (L : List α) (hdupe : li
   ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
   find_first_dupe L (list_ne_nil_of_has_dupes L hdupe) ≤ j := by
   intro i j ilt jlt hij
-  unfold find_first_dupe; simp
-  have hnnil := list_ne_nil_of_has_dupes L hdupe
-  have lnz : L.length ≠ 0 :=
-    Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)
-  exact _find_first_is_first _ _ (list_has_dupe_fin_of_dupe L i j ilt jlt hij)
+  exact find_first_is_first _ _ (list_has_dupe_fin_of_dupe L i j ilt jlt hij)
 
 -- Prove that the value at the location indicated by 'find_first_dupe' is
 -- in-fact a duplicate.
@@ -390,27 +382,19 @@ lemma first_dupe_is_dupe {α : Type} [DecidableEq α] (L : List α) (hdupe : lis
   have hnnil : L ≠ [] := list_ne_nil_of_has_dupes L hdupe
   have lnz : L.length ≠ 0 :=
     Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)
-  let k := _find_first (list_has_dupe_fin L)
+  let k := find_first (list_has_dupe_fin L) lnz
   dsimp
   let ⟨i, j, ilt, jlt, hij⟩ := hdupe
   have satex : ∃ x, list_has_dupe_fin L x := by
     exact ⟨_, list_has_dupe_fin_of_dupe L i j ilt jlt hij⟩
-  have : list_has_dupe_fin L k := _find_first_is_sat _ satex
+  have : list_has_dupe_fin L k := find_first_is_sat _ satex
   rcases this with ⟨a, b, alt, blt, hab⟩
-  have klt : k.val < L.length := by
-    convert k.2
-    exact (Nat.sub_one_add_one lnz).symm
-  rw [List.length_take_of_le (Nat.add_one_le_of_lt klt)] at blt
-  use a, (by
-    unfold find_first_dupe; simp
-    exact lt_of_lt_of_le alt (Nat.le_of_lt_add_one blt)
-  )
+  rw [List.length_take_of_le (Nat.add_one_le_of_lt k.2)] at blt
+  use a, lt_of_lt_of_le alt (Nat.le_of_lt_add_one blt)
   rw [List.getElem_take, List.getElem_take] at hab
   convert hab
-  unfold find_first_dupe; simp
+  unfold find_first_dupe
   apply le_antisymm _ (Nat.le_of_lt_add_one blt)
   have blt' : b < L.length :=
-    lt_of_le_of_lt (Nat.le_of_lt_add_one blt) klt
-  have := first_dupe_is_first L hdupe a b alt blt' hab
-  unfold find_first_dupe at this; simp at this
-  exact this
+    lt_of_le_of_lt (Nat.le_of_lt_add_one blt) k.2
+  exact first_dupe_is_first L hdupe a b alt blt' hab

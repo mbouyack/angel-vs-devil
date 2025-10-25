@@ -36,22 +36,22 @@ lemma last_close_fun_sat {p : Nat} (A : Journey p) :
 
 -- Find the first cell in the journey close to the last cell
 def find_first_close_to_last {p : Nat} (A : Journey p) : Nat :=
-  (_find_first (last_close_fun A)).val
+  (find_first (last_close_fun A) (Nat.add_one_ne_zero _)).val
 
 -- Upper bound on the value of 'find_first_close_to_last'
 lemma first_close_to_last_lt {p : Nat} (A : Journey p) :
   find_first_close_to_last A < steps A + 1 :=
-  (_find_first (last_close_fun A)).2
+  (find_first (last_close_fun A) (Nat.add_one_ne_zero _)).2
 
 -- 'first_close_to_last' is in-fact close to last
 lemma first_close_to_last_is_close {p : Nat} (A : Journey p) :
   close p (cell A (find_first_close_to_last A) (first_close_to_last_lt A)) (last A) :=
-  _find_first_is_sat (last_close_fun A) ⟨_, last_close_fun_sat A⟩
+  find_first_is_sat (last_close_fun A) ⟨_, last_close_fun_sat A⟩
 
 -- 'first_close_to_last' is in-fact the first such cell
 lemma first_close_to_last_is_first {p : Nat} (A : Journey p) (i : Nat) (ilt : i < steps A + 1) :
   close p (cell A i ilt) (last A) → find_first_close_to_last A ≤ i :=
-  fun h ↦ Fin.le_iff_val_le_val.mp (_find_first_is_first (last_close_fun A) ⟨i, ilt⟩ h)
+  fun h ↦ Fin.le_iff_val_le_val.mp (find_first_is_first (last_close_fun A) ⟨i, ilt⟩ h)
 
 -- The first cell close to the last cell of the journey
 -- is not the last cell itself unless the journey has steps = 0

@@ -1029,7 +1029,7 @@ abbrev is_sprint_mem (D : Devil) (p n : Nat)
 -- For the proof
 def find_last_sprint_with_state (D : Devil) (p n : Nat)
   (npos : 0 < n) (rs : RunState) : Nat :=
-  (_find_last (is_sprint_mem D p n npos rs)).val
+  (find_last (is_sprint_mem D p n npos rs) (Nat.add_one_ne_zero _)).val
 
 -- Prove that 'rs' appears in no later sprint than the one
 -- found by 'find_last_sprint_with_state'
@@ -1045,7 +1045,7 @@ lemma last_sprint_with_state_is_last (D : Devil) (p n : Nat)
   rw [← h₁]
   apply Fin.le_iff_val_le_val.mp
   -- Then apply the corresponding theorem for '_find_last'
-  apply _find_last_is_last
+  apply find_last_is_last
   exact hmem
 
 -- The return value of 'find_last_sprint_with_state' is
@@ -1056,7 +1056,7 @@ lemma last_sprint_with_state_lt_length (D : Devil) (p n : Nat)
   unfold find_last_sprint_with_state
   rw [make_run_sprints_length]
   apply lt_of_lt_of_eq _ (Nat.sub_one_add_one (Nat.ne_zero_of_lt npos))
-  exact (_find_last (is_sprint_mem D p n npos rs)).2
+  exact (find_last (is_sprint_mem D p n npos rs) (Nat.add_one_ne_zero _)).2
 
 -- The sprint indicated by 'find_last_sprint_with_state' does
 -- in-fact contain the element 'rs'
@@ -1069,7 +1069,7 @@ lemma last_sprint_with_state_is_sat (D : Devil) (p n : Nat)
   ) := by
   rintro ⟨i, ilt, hmem⟩
   let i' : Fin (n - 1 + 1) := ⟨i, by rwa [(Nat.sub_one_add_one (Nat.ne_zero_of_lt npos))]⟩
-  exact _find_last_is_sat ((is_sprint_mem D p n npos rs)) ⟨i', hmem⟩
+  exact find_last_is_sat ((is_sprint_mem D p n npos rs)) ⟨i', hmem⟩
 
 -- If the devil is "nice", the runner will never visit a cell that was previously eaten.
 -- Note that this result is more general than 'make_run_journey_allowed_of_nice' in that
