@@ -72,7 +72,7 @@ lemma final_state_loc_eq_journey_last {p : Nat} (S : RunBuilder p) :
 -- TODO: Reevaluate whether the size of the wall should be smaller by 'p'
 -- I increased it to make sure one of the proofs would work but it may not be necessary.
 def west_wall (p n : Nat) :=
-  List.map (fun i : Nat ↦ (-1, (i : Int))) (List.range (p * (n + 1) + 1))
+  List.map (fun i : Nat ↦ (-1, (i : Int) - Int.ofNat (n * p))) (List.range (2 * n * p + 1))
 
 -- Any cell which is an elment of the west wall has x-coordinate -1
 lemma west_wall_xcoord_of_mem (p n : Nat) :
@@ -85,12 +85,22 @@ lemma west_wall_xcoord_of_mem (p n : Nat) :
 
 -- Prove the conditions for a cell to be an element of the west wall
 lemma west_wall_mem (p n : Nat) :
-  ∀ i (_ : i ≤ p * (n + 1)), (-1, Int.ofNat i) ∈ west_wall p n := by
-  intro i ile
+  ∀ y (_ : -(Int.ofNat (n * p)) ≤ y) (_ : y ≤ Int.ofNat (n * p)), (-1, y) ∈ west_wall p n := by
+  intro y ley yle
   unfold west_wall
   apply List.mem_iff_getElem.mpr
-  use i, (by rw [List.length_map, List.length_range]; exact Nat.lt_add_one_of_le ile)
-  rw [List.getElem_map, List.getElem_range]; rfl
+  use Int.toNat (y + Int.ofNat (n * p))
+  have hnonneg : 0 ≤ y + Int.ofNat (n * p) := by
+    apply Int.le_add_of_sub_right_le
+    rwa [zero_sub]
+  use (by
+    rw [List.length_map, List.length_range]
+    apply (Int.toNat_lt hnonneg).mpr
+    rw [Int.natCast_add, Int.natCast_one, mul_assoc, two_mul, Int.natCast_add]
+    exact Int.lt_add_one_of_le (Int.add_le_add_right yle _)
+  )
+  rw [List.getElem_map, List.getElem_range, Int.ofNat_toNat]
+  rw [max_eq_left hnonneg, Int.add_sub_cancel]
 
 -- Get the next sprint to be added to the builder
 -- Note that for the purposes of finding the next sprint, a wall of cells
@@ -577,9 +587,20 @@ lemma make_block_list_subset (D : Devil) (p m n : Nat) (mle : m ≤ n) :
     rcases List.mem_map.mp rhs with ⟨a, amem, rfl⟩
     have alt := List.mem_range.mp amem
     rw [make_run_eaten_length] at *
-    apply west_wall_mem p (n + 1) a
-    apply le_trans (Nat.le_of_lt_add_one alt) (Nat.mul_le_mul_left _ _)
-    exact Nat.add_one_le_add_one_iff.mpr (Nat.add_one_le_add_one_iff.mpr mle)
+    rw [make_run_eaten_length] -- Uh... shouldn't '*' include this?
+    have hle : Int.ofNat ((m + 1) * p) ≤ Int.ofNat ((n + 1) * p) := by
+      apply Int.ofNat_le_ofNat_of_le
+      exact Nat.mul_le_mul_right _ (Nat.add_le_add_right mle 1)
+    apply west_wall_mem p (n + 1)
+    · apply Int.le_sub_left_of_add_le
+      rw [← Int.sub_eq_add_neg]
+      apply Int.sub_left_le_of_le_add
+      rw [← add_zero (Int.ofNat ((m + 1) * p))]
+      exact Int.add_le_add hle (Int.ofNat_zero_le _)
+    · apply Int.sub_right_le_of_le_add
+      rw [mul_assoc, two_mul] at alt
+      apply le_trans ((Int.natCast_add _ _) ▸ (Int.ofNat_le_ofNat_of_le (Nat.le_of_lt_add_one alt)))
+      exact Int.add_le_add_right hle _
 
 -- Expand the 'next_sprint' of a 'make_run' using 'make_block_list'
 lemma next_sprint_make_run_def (D : Devil) (p n : Nat) :
@@ -610,6 +631,154 @@ lemma make_run_sprints_get_last_eq_sprint (D : Devil) (p n : Nat) (npos : 0 < n)
   · rw [make_run_sprints_length]
     exact Nat.sub_lt npos Nat.zero_lt_one
   rw [make_run_sprints_length]
+
+-- If the angel has no power it never leaves the start
+lemma final_state_of_pzero (D : Devil) (n : Nat) :
+  final_state (make_run D 0 n) = run_start := by
+  by_cases nz : n = 0
+  · subst nz
+    unfold final_state
+    rw [dif_pos (make_run_sprints_length D 0 0)]
+  rename' nz => nnz; push_neg at nnz
+  unfold final_state
+  rw [dif_neg (ne_of_eq_of_ne (make_run_sprints_length D 0 n) nnz)]
+  convert List.getLast_singleton (List.cons_ne_nil _ _)
+  rw [make_run_sprints_get_last_eq_sprint _ _ _ (Nat.pos_of_ne_zero nnz), sprint_pzero]; congr
+  exact final_state_of_pzero D (n - 1)
+
+-- Prove an upper bound on the distance the elements in the
+-- next sprint can be from the origin.
+lemma make_run_next_sprint_mem_origin_close (D : Devil) (p n : Nat) :
+  ∀ rs ∈ next_sprint (make_run D p n), close (p * (n + 1)) (0, 0) (loc rs) := by
+  intro rs rsmem
+  have hclose₀ : close (p * n) (0, 0) (last (make_run D p n).A) := by
+    unfold close
+    by_contra! h
+    apply (lt_self_iff_false n).mp
+    nth_rw 2 [← make_run_journey_steps D p n]
+    exact journey_lb _ _ h
+  have hclose₁ : close p (last (make_run D p n).A) (loc rs) := by
+    rw [close_comm, last]
+    rw [cell_congr_idx (make_run D p n).A (make_run_journey_steps D p n)]
+    apply make_run_next_sprint_mem_journey_cell_close
+    assumption
+  rw [mul_add, mul_one]
+  exact le_trans (dist_tri _ _ _) (Nat.add_le_add hclose₀ hclose₁)
+
+-- If the angel has no power it never leaves the start
+lemma make_run_of_pzero (D : Devil) (n : Nat) :
+  ∀ s ∈ (make_run D 0 n).sprints, s = [run_start] := by
+  intro s smem
+  -- Handle the case where n = 0
+  by_cases nz : n = 0
+  · subst nz
+    rw [make_run_eq_empty_of_length_zero] at smem
+    rw [empty_builder_sprints] at smem
+    exact False.elim ((List.mem_nil_iff _).mp smem)
+  rename' nz => nnz; push_neg at nnz
+  rw [make_run_sprints_recurrence D 0 n (Nat.pos_of_ne_zero nnz)] at smem
+  rcases List.mem_append.mp smem with lhs | rhs
+  · exact make_run_of_pzero D (n - 1) s lhs
+  · rw [List.mem_singleton.mp rhs]
+    unfold next_sprint
+    rw [sprint_pzero]; congr
+    exact final_state_of_pzero D (n - 1)
+
+-- Show that the 'make_run' never crosses the y-axis
+lemma make_run_x_nonneg (D : Devil) (p n : Nat) :
+  ∀ s ∈ (make_run D p n).sprints, ∀ rs ∈ s, 0 ≤ rs.x := by
+  intro s smem rs rsmem
+  -- If p = 0, the angel never leaves the start
+  by_cases pz : p = 0
+  · subst pz
+    rw [make_run_of_pzero D n s smem] at rsmem
+    rw [List.mem_singleton.mp rsmem]
+    unfold run_start; simp
+  rename' pz => pnz; push_neg at pnz
+  have ppos : 0 < p := Nat.pos_of_ne_zero pnz
+  by_cases nz : n = 0
+  · subst nz
+    rw [make_run_eq_empty_of_length_zero, empty_builder_sprints] at smem
+    exact False.elim ((List.mem_nil_iff _).mp smem)
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  rw [make_run_sprints_recurrence D p n npos] at smem
+  -- If 's' is not the last sprint we can recurse
+  rcases List.mem_append.mp smem with lhs | rhs
+  · exact make_run_x_nonneg D p (n - 1) s lhs rs rsmem
+  have hs := List.mem_singleton.mp rhs
+  have snnil : s ≠ [] := by
+    rw [hs]
+    exact sprint_nonnil _ _ _
+  have lehead : 0 ≤ (s.head snnil).x := by
+    by_cases npz : n - 1 = 0
+    · rw [npz, make_run_eq_empty_of_length_zero] at hs
+      unfold next_sprint at hs
+      rw [final_state_of_sprints_nil _ (empty_builder_sprints D p)] at hs
+      rw [List.head_eq_getElem, getElem_congr_coll hs]
+      rw [sprint_getElem_zero]
+      unfold run_start; simp
+    rename' npz => npnz; push_neg at npnz
+    rw [List.head_eq_getElem, getElem_congr_coll hs]
+    rw [← next_sprint_first_eq_builder_last]
+    unfold final_state
+    rw [dif_neg (ne_of_eq_of_ne (make_run_sprints_length D p (n - 1)) npnz)]
+    -- The head of one sprint is the end of the previous so we can recurse
+    exact make_run_x_nonneg D p (n - 1) _ (List.getLast_mem _) _ (List.getLast_mem _)
+  have lehead' : -1 ≤ (s.head snnil).x := by
+    exact le_of_lt (lt_of_lt_of_le (by norm_num) lehead)
+  -- If the head of the sprint has non-negative x-coordinate
+  -- suppose 'rs' has negative x-coordinate and show this leads to a contradiction
+  apply Int.le_of_sub_one_lt
+  rw [zero_sub]
+  by_contra! xle
+  -- Prove the elements of 's' are "close"
+  have hclose : ∀ rs ∈ s, close (n * p) (0, 0) (loc rs) := by
+    intro rs rsmem
+    rw [← Nat.sub_one_add_one nnz, mul_comm]
+    exact make_run_next_sprint_mem_origin_close D p (n - 1) rs (hs ▸ rsmem)
+  unfold next_sprint at hs
+  let rs₀ := (final_state (make_run D p (n - 1)))
+  let blocked := make_block_list D p (n - 1)
+  change s = sprint p rs₀ blocked at hs
+  -- Rewrite the sprint as a trace and use the intermediate value theorem
+  -- to show that some element in the sprint must have x = -1
+  have htrace := sprint_eq_trace p s.length rs₀ blocked (by rw [hs])
+  have rsmem' : rs ∈ trace s.length rs₀ blocked := by
+    rw [← htrace]
+    rwa [hs] at rsmem
+  have headmem : s.head snnil ∈ trace s.length rs₀ blocked := by
+    rw [← htrace]
+    convert List.head_mem snnil
+    exact hs.symm
+  rcases trace_intermediate_value_x
+    s.length rs₀ blocked rs (s.head snnil) rsmem' headmem (-1) xle lehead' with ⟨rs', rs'mem, hrs'⟩
+  rw [← htrace] at rs'mem
+  have yle := close_origin_yle _ _ (hclose rs' (hs ▸ rs'mem))
+  have ley := close_origin_negyle _ _ (hclose rs' (hs ▸ rs'mem))
+  rw [← Int.neg_le_neg_iff, Int.neg_neg] at ley
+  -- Show that loc rs' must appear in the blocked list
+  have hblocked : loc rs' ∈ blocked := by
+    unfold blocked make_block_list
+    rw [make_run_eaten_length, Nat.sub_one_add_one nnz]
+    -- NOTE: There's a great example here of an incomprehensible
+    -- Lean failure. Just try using 'List.mem_union_right' instead
+    -- of 'List.mem_union_iff.mpr; right' and watch it fail!
+    -- (It has something to do with using two different types of BEq)
+    apply List.mem_union_iff.mpr; right
+    convert west_wall_mem p n (loc rs').2 ley yle
+  -- If the sprint moved off the starting square then all states but
+  -- the first must not be in the blocked list. This leaves rs' ≠ rs₀
+  -- as the remaining goal
+  apply sprint_avoids_blocked' p rs₀ blocked rs' rs'mem _ hblocked
+  -- To show rs' ≠ rs₀, put a lower bound on rs₀.x
+  have lers₀x : 0 ≤ rs₀.x := by
+    rwa [List.head_eq_getElem, getElem_congr_coll hs, sprint_getElem_zero] at lehead
+  unfold loc
+  intro h
+  have xeq := (Prod.ext_iff.mp h).1; dsimp at xeq
+  absurd (hrs' ▸ xeq); push_neg
+  exact ne_of_lt ((Int.zero_sub _) ▸ (Int.sub_one_lt_of_le lers₀x))
 
 -- This theorem is a bit odd, but useful in several places.
 -- It states that a 'make_run' never steps on a later block list, given
@@ -664,35 +833,24 @@ lemma make_run_next_sprint_avoids_later_block_list_of_nice
   · unfold west_wall at rhs
     rcases List.getElem_of_mem rhs with ⟨i, ilt, hi⟩
     rw [List.length_map, List.length_range, make_run_eaten_length] at ilt
-    rw [List.getElem_map, List.getElem_range] at hi
-    -- Handle the case where 'i' is so large, it exceeds the bound proven in Bound.lean
-    by_cases lti : p * (n + 1) < i
-    · have hclose₀ : close (p * n) (0, 0) (last (make_run D p n).A) := by
-        unfold close
-        by_contra! h
-        apply (lt_self_iff_false n).mp
-        nth_rw 2 [← make_run_journey_steps D p n]
-        exact journey_lb _ _ h
-      have hclose₁ : close p (last (make_run D p n).A) (loc rs) := by
-        rw [close_comm, last]
-        rw [cell_congr_idx (make_run D p n).A (make_run_journey_steps D p n)]
-        apply make_run_next_sprint_mem_journey_cell_close
-        assumption
-      have hclose₂ : close (p * (n + 1)) (0, 0) (loc rs) := by
-        rw [mul_add, mul_one]
-        exact le_trans (dist_tri _ _ _) (Nat.add_le_add hclose₀ hclose₁)
-      apply not_lt_of_ge (close_origin_yle _ _ hclose₂)
-      rw [← hi]; simp
-      rwa [← Int.ofNat_one, ← Int.natCast_add, Int.ofNat_mul_ofNat, Int.ofNat_lt]
-    rename' lti => ile; push_neg at ile
-    · -- If i ≤ p * (n + 1), show that 'rs' was in the old west wall
-      apply rsnmembl (List.mem_union_iff.mpr _); right
-      rw [make_run_eaten_length, ← hi]
-      apply west_wall_mem
-      -- TODO: We have some slack here, which suggests that
-      -- one of our definitions isn't as tight as it should be
-      rw [mul_add]
-      exact Nat.le_add_right_of_le ile
+    rw [List.getElem_map, List.getElem_range, make_run_eaten_length] at hi
+    -- Prove that 'rs' is "close" to the origin using the bound proven in Bound.lean
+    have hclose := make_run_next_sprint_mem_origin_close D p n rs rsmemns
+    -- Using hclose₂, prove bounds on rs.y
+    by_cases ltrsy : Int.ofNat ((n + 1) * p) < (loc rs).2
+    · rw [mul_comm] at ltrsy
+      exact not_lt_of_ge (close_origin_yle _ _ hclose) ltrsy
+    rename' ltrsy => rsyle; push_neg at rsyle
+    by_cases rsylt : (loc rs).2 < -(Int.ofNat ((n + 1) * p))
+    · rw [mul_comm] at rsylt
+      apply not_lt_of_ge (close_origin_negyle _ _ hclose)
+      convert (Int.neg_neg _) ▸ (Int.neg_lt_neg rsylt)
+    rename' rsylt => lersy; push_neg at lersy
+    -- If -(p * (n + 1) ≤ rs.y ≤ p * (n + 1), show that 'rs' was in the old west wall
+    apply rsnmembl (List.mem_union_iff.mpr _); right
+    rw [make_run_eaten_length]
+    rw [← hi] at *
+    exact west_wall_mem _ _ _ lersy rsyle
 
 /- Note that it *is* possible to force the runner to remain on a blocked cell
    if the devil is not nice. Technically, even with a devil that isn't nice,
@@ -968,13 +1126,8 @@ lemma run_path_pzero (D : Devil) (n : Nat) : (RunPath D 0 n) = [run_start] := by
   have hsnnil : (make_run D 0 n).sprints ≠ [] := by
     apply List.ne_nil_of_length_pos
     rwa [make_run_sprints_length]
-  rw [List.getLast_eq_getElem hsnnil, make_run_sprint]; swap
-  · rw [make_run_sprints_length]
-    exact Nat.sub_lt npos Nat.zero_lt_one
-  unfold next_sprint
-  rw [sprint_pzero]
-  apply List.eq_nil_of_length_eq_zero
-  rw [List.length_tail, List.length_singleton]
+  rw [make_run_of_pzero D n _ (List.getLast_mem _)]
+  rfl
 
 -- Every run path has positive length
 lemma run_path_length_pos (D : Devil) (p n : Nat) : 0 < (RunPath D p n).length := by

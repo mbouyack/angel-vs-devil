@@ -521,9 +521,10 @@ congr 2
   rw [getElem_congr_idx (Nat.sub_one_add_one inz).symm, List.getElem_cons_succ]
 
 -- Prove that a trace never steps on blocked cell
-lemma trace_avoids_blocked (n : Nat) (rs : RunState) (blocked : List (Int × Int)) (hsafe : loc rs ∉ blocked) :
-  ∀ x ∈ trace n rs blocked, loc x ∉ blocked := by
-  intro x hmem₀ hmem₁
+-- (but it may *remain* on a blocked cell)
+lemma trace_avoids_blocked' (n : Nat) (rs : RunState) (blocked : List (Int × Int)) :
+  ∀ x ∈ trace n rs blocked, loc x ≠ loc rs → loc x ∉ blocked := by
+  intro x hmem₀ nelrs hmem₁
   have nnz : n ≠ 0 := by
     intro nz
     subst nz
@@ -535,19 +536,29 @@ lemma trace_avoids_blocked (n : Nat) (rs : RunState) (blocked : List (Int × Int
     rw [trace_length]
     exact Nat.pos_of_ne_zero nnz
   rw [trace_cons_of_nonnil n rs blocked nonnil] at hmem₀
-  rcases List.mem_cons.mp hmem₀ with lhs | rhs
-  · subst lhs
-    contradiction
-  have hsafe' : loc (next_step blocked rs) ∉ blocked := by
-    intro hmem₂
-    unfold next_step at hmem₂
-    split_ifs at hmem₂ with h₁ h₂
-    · rw [turn_right_loc] at hmem₂
-      contradiction
-    · contradiction
-    · contradiction
-  absurd hmem₁
-  apply trace_avoids_blocked (n - 1) (next_step blocked rs) blocked hsafe' _ rhs
+  have hmem₂ : x ∈ trace (n - 1) (next_step blocked rs) blocked :=
+    Or.elim (List.mem_cons.mp hmem₀) (fun h ↦ False.elim ((h ▸ nelrs) rfl)) id
+  -- Use recursion to show that x = next_step
+  by_cases h : loc x ≠ loc (next_step blocked rs)
+  · exact False.elim ((trace_avoids_blocked' (n - 1) (next_step blocked rs) blocked x hmem₂ h) hmem₁)
+  push_neg at h
+  -- Now show that 'next_step' either moves onto
+  -- an unblocked cell or remains on a blocked cell
+  unfold next_step at h
+  split_ifs at h with h₀ h₁
+  · exact (h ▸ nelrs) rfl
+  · exact (h ▸ h₁) hmem₁
+  · exact (h ▸ h₀) hmem₁
+
+-- Prove that a trace never steps on blocked cell
+-- given that the starting cell isn't blocked
+lemma trace_avoids_blocked (n : Nat) (rs : RunState) (blocked : List (Int × Int)) (hsafe : loc rs ∉ blocked) :
+  ∀ x ∈ trace n rs blocked, loc x ∉ blocked := by
+  intro x hmem₀ hmem₁
+  have h : loc x ≠ loc rs := by
+    contrapose! hsafe
+    rwa [← hsafe]
+  exact trace_avoids_blocked' n rs blocked x hmem₀ h hmem₁
 
 -- Intermediate value theorem for x-coordinates in a trace
 -- This relies on a more general verion of the threorem proven in Misc.lean

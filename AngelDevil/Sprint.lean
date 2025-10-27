@@ -166,15 +166,25 @@ lemma sprint_close_first_last (p : Nat) (start : RunState) (blocked : List (Int 
   rw [close_comm]
   exact sprint_close_mem_head p start blocked _ (List.getLast_mem hnnil)
 
+-- The runner never moves to an eaten cell
+-- (but may *remain* on an eaten cell if they start there)
+lemma sprint_avoids_blocked' (p : Nat) (start : RunState) (blocked : List (Int × Int)) :
+  ∀ x ∈ (sprint p start blocked), loc x ≠ loc start → loc x ∉ blocked := by
+  intro x hmem₀ nels hmem₁
+  unfold sprint at hmem₀
+  split_ifs at hmem₀ with h
+  repeat exact trace_avoids_blocked' _ start blocked x hmem₀ nels hmem₁
+
 -- The runner never visits an eaten cell
 -- (as long as they don't start on an eaten cell)
 lemma sprint_avoids_blocked (p : Nat) (start : RunState)
   (blocked : List (Int × Int)) (hsafe : loc start ∉ blocked) :
   ∀ x, x ∈ (sprint p start blocked) → loc x ∉ blocked := by
   intro x hmem₀ hmem₁
-  unfold sprint at hmem₀
-  split_ifs at hmem₀ with h
-  repeat exact trace_avoids_blocked _ start blocked hsafe x hmem₀ hmem₁
+  have h : loc x ≠ loc start := by
+    contrapose! hsafe
+    rwa [← hsafe]
+  exact sprint_avoids_blocked' p start blocked x hmem₀ h hmem₁
 
 -- If two different block lists produce the same trace for
 -- every distance up to 2p+1, then the corresponding sprints are equal.
