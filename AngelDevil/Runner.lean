@@ -1512,3 +1512,155 @@ lemma run_path_eq_trace_of_nice (D : Devil) (p m n : Nat) (mle : m ≤ n - 1) (h
       -- all the way back at the beginning of the proof!
       exact Nat.sub_pos_of_lt (lt_of_le_of_lt (Nat.one_le_of_lt ppos) (sprint_length_lb p _ _))
     rw [List.getLast_tail]
+
+lemma run_path_x_nonneg (D : Devil) (p n : Nat) :
+  ∀ rs ∈ (RunPath D p n), 0 ≤ rs.x := by
+  intro rs rsmem
+  by_cases nz : n = 0
+  · subst nz
+    rw [run_path_of_length_zero] at rsmem
+    rw [List.mem_singleton.mp rsmem]
+    unfold run_start; simp
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  -- Map 'rs' back into the run builder so we can use the previously-proven 'make_run_x_nonneg'
+  rcases make_run_sprints_getElem_exists_of_run_path_mem D p n npos rs rsmem with ⟨i, ilt, j, jlt, hirs⟩
+  exact hirs ▸ (make_run_x_nonneg D p n _ (List.getElem_mem ilt) _ (List.getElem_mem jlt))
+
+-- If the runner ever wanders south of the x-axis, there must be some step
+-- along their path where they are on the positive x-axis, facing south or west.
+lemma run_path_intersects_posx_of_south (D : Devil) (p n : Nat) (hnice : nice D p) :
+  ∀ (j : Nat) (jlt : j < (RunPath D p n).length), (RunPath D p n)[j].y < 0 →
+  ∃ (i : Nat) (ilt : i < j), 0 ≤ (RunPath D p n)[i].x ∧ (RunPath D p n)[i].y = 0 ∧
+  ((RunPath D p n)[i].u = uvec_down ∨ (RunPath D p n)[i].u = uvec_left) := by
+  intro j jlt rpjneg
+  let BL := make_block_list D p (n + 1)
+  let L := (RunPath D p n).length
+  let T := trace (j + 1) run_start BL
+  have hnnil : T ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  -- Rewrite the run path as a trace
+  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  -- Define two points on the trace, rs₀ and rs₁, so we can use the intermediate value theorem
+  let rs₀ := T[j]'(by
+      rw [trace_length]
+      exact Nat.lt_add_one _
+    )
+  have rs₀mem : rs₀ ∈ T :=
+    List.getElem_mem (by rw [trace_length]; exact Nat.lt_add_one _)
+  let rs₁ := run_start
+  have rs₁mem : rs₁ ∈ T :=
+    List.mem_of_getElem (trace_getElem_zero_of_nonnil (j + 1) run_start BL hnnil)
+  -- Use 'trace_take' to convert from a larger to smaller trace
+  have htake := trace_take L run_start BL (j + 1) (Nat.add_one_le_of_lt jlt)
+  have yle : rs₀.y ≤ -1 := by
+    unfold rs₀ T
+    rw [getElem_congr_coll htake, List.getElem_take, ← Int.zero_sub 1]
+    apply Int.le_sub_one_of_lt
+    convert rpjneg
+    exact htrace.symm
+  have ley : -1 ≤ rs₁.y := by
+    unfold rs₁ run_start; simp
+  -- Use the intermediate value theorem to get a point on the trace with y = -1
+  rcases trace_intermediate_value_y (j + 1) run_start BL rs₀ rs₁ rs₀mem rs₁mem (-1) yle ley with ⟨rs₂, rs₂mem, rs₂y⟩
+  rcases List.getElem_of_mem rs₂mem with ⟨k₀, k₀lt, hk₀rs⟩
+  -- Now we need to get the *first* step with y < 0
+  let k₁ := (find_first (fun i ↦ T[i].y < 0)
+    (Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil))).val
+  have k₁lt : k₁ < T.length := Fin.prop _
+  have k₁lt' : k₁ < j + 1 := by
+    unfold T at k₁lt
+    rwa [trace_length] at k₁lt
+  have hk₁y : T[k₁].y < 0 := by
+    apply find_first_is_sat (fun i ↦ T[i].y < 0)
+    use ⟨k₀, k₀lt⟩; simp
+    rw [hk₀rs, rs₂y]
+    norm_num
+  have k₁nz : k₁ ≠ 0 := by
+    intro k₁z
+    absurd hk₁y
+    rw [getElem_congr_idx k₁z]
+    rw [trace_getElem_zero_of_nonnil (j + 1) run_start BL hnnil]
+    unfold run_start; simp
+  have k₁pos : 0 < k₁ := Nat.pos_of_ne_zero k₁nz
+  -- Let 'i' be the step just before T[k₁]
+  -- This will be the step that satisfies our goal
+  -- Note that T[i].y = 0 since T[k₁] is the first step with y < 0
+  let i := k₁ - 1
+  have ilt : i < j := by
+    apply lt_of_lt_of_le (Nat.sub_one_lt k₁nz)
+    exact Nat.le_of_lt_add_one k₁lt'
+  have ilt' : i < T.length := by
+    unfold T
+    rw [trace_length]
+    exact lt_trans ilt (Nat.lt_add_one _)
+  -- If T[i].y < 0, that violates 'find_first_is_first'
+  have hleiy : 0 ≤ (T[i]'ilt').y := by
+    by_contra! h
+    absurd Fin.le_iff_val_le_val.mp (find_first_is_first (fun i ↦ T[i].y < 0) ⟨i, ilt'⟩ h); simp
+    exact Nat.sub_one_lt k₁nz
+  -- We'll need this inequality to evaluate 'natAbs' below
+  have iyltky : (T[k₁]'k₁lt).y ≤ (T[i]'ilt').y :=
+    le_of_lt (lt_of_lt_of_le hk₁y hleiy)
+  -- Prove the relationship between T[k₁] and T[i]
+  have hns : T[k₁]'k₁lt = next_step BL (T[i]'ilt') :=
+    trace_getElem_recurrence' (j + 1) run_start BL k₁ k₁pos k₁lt'
+  -- Show that if T[i].y ≥ 1, the distance between T[i] and T[k₁] is too great
+  -- Therefore, T[i].y = 0
+  have hiyz : (T[i]'ilt').y = 0 := by
+    symm
+    apply eq_of_le_of_not_lt hleiy
+    intro iypos
+    absurd next_step_dist_le_one BL (T[i]'ilt'); push_neg
+    rw [← hns]
+    apply lt_max_of_lt_right
+    unfold loc; simp
+    apply Int.ofNat_lt.mp
+    rw [← Int.eq_natAbs_of_nonneg (Int.sub_nonneg.mpr iyltky), Int.natCast_one]
+    apply Int.lt_sub_left_of_add_lt
+    apply lt_of_le_of_lt (Int.add_one_le_of_lt hk₁y) iypos
+  -- Prove equality between the RunPath and trace element
+  have hrpi : (RunPath D p n)[i] = T[i] := by
+    unfold T
+    rw [getElem_congr_coll htrace, getElem_congr_coll htake, List.getElem_take]
+  -- Use all the facts we know about 'i' so far
+  use i, ilt, run_path_x_nonneg D p n _ (List.getElem_mem _)
+  rw [hrpi]
+  use hiyz
+  -- Now we just need to consider the four possible values of T[i].u
+  -- and show that only two don't lead to a contradiction.
+  let u := T[i].u
+  have leiys := le_trans hleiy (Int.le_add_of_nonneg_right Int.one_nonneg)
+  rcases Finset.mem_insert.mp (uvec_finset_mem u) with hup | hrest
+  · -- Show that we couldn't have moved down if we started facing up
+    absurd hk₁y; push_neg
+    rw [hns]
+    unfold next_step
+    unfold u at hup
+    split_ifs with h₀ h₁
+    · unfold turn_right; simpa
+    · unfold move_forward; simp
+      rw [hup]
+      unfold uvec_up; simpa
+    · unfold turn_left; simp
+      rw [hup]
+      unfold uvec_up; simpa
+  rcases Finset.mem_insert.mp hrest with hdown | hrest
+  · left; assumption
+  rcases Finset.mem_insert.mp hrest with hleft | hright
+  · right; assumption
+  · -- Show that we couldn't have moved down if we started facing right
+    have hright' : T[i].u = uvec_right := Finset.mem_singleton.mp hright
+    absurd hk₁y; push_neg
+    rw [hns]
+    unfold next_step
+    split_ifs with h₀ h₁
+    · unfold turn_right; simpa
+    · unfold move_forward; simp
+      rw [hright']
+      unfold uvec_right; simpa
+    · unfold turn_left; simp
+      rw [hright']
+      unfold uvec_right; simpa
