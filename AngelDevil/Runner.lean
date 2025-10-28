@@ -1690,3 +1690,123 @@ lemma run_path_intersects_posx_of_south (D : Devil) (p n : Nat) (hnice : nice D 
     · unfold turn_left; simp
       rw [hright']
       unfold uvec_right; simpa
+
+-- If the runner is ever on the positive x-axis facing west,
+-- it was previously on the positive x-axis facing south
+lemma run_path_posx_west_has_earlier_posx_south (D : Devil) (p n : Nat) (hnice : nice D p) :
+  ∀ j (jlt : j < (RunPath D p n).length),
+  0 ≤ (RunPath D p n)[j].x ∧ (RunPath D p n)[j].y = 0 ∧ (RunPath D p n)[j].u = uvec_left →
+  ∃ i, ∃ (ilt : i < j),
+  0 ≤ ((RunPath D p n)[i]'(lt_trans ilt jlt)).x ∧
+  ((RunPath D p n)[i]'(lt_trans ilt jlt)).y = 0 ∧
+  ((RunPath D p n)[i]'(lt_trans ilt jlt)).u = uvec_down := by
+  intro j jlt ⟨hjxpos, hjyz, hjuleft⟩
+  let BL := make_block_list D p (n + 1)
+  let L := (RunPath D p n).length
+  let T := trace (j + 1) run_start BL
+  have Lpos : 0 < L := run_path_length_pos D p n
+  have hnnil : T ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  -- Define a function that checks a step of the run path
+  -- to see if it meets the requirements of 'j'
+  let f : Fin L → Prop :=
+    fun i ↦ 0 ≤ (RunPath D p n)[i].x ∧ (RunPath D p n)[i].y = 0 ∧ (RunPath D p n)[i].u = uvec_left
+  -- Prove that f is satisfied by j
+  have hsat : ∃ j, f j := by
+    use ⟨j, jlt⟩
+    exact ⟨hjxpos, hjyz, hjuleft⟩
+  -- We'll use j' for the rest of the proof instead of j
+  let j' := (find_first f (Nat.ne_zero_of_lt Lpos)).val
+  let j'lt : j' < L := Fin.prop _
+  have : f ⟨j', j'lt⟩ :=
+    find_first_is_sat f hsat
+  have hj'xpos : 0 ≤ (RunPath D p n)[j'].x :=
+    (find_first_is_sat f hsat).1
+  have hj'yz : (RunPath D p n)[j'].y = 0 :=
+    (find_first_is_sat f hsat).2.1
+  have hj'uleft : (RunPath D p n)[j'].u = uvec_left :=
+    (find_first_is_sat f hsat).2.2
+  have j'le : j' ≤ j := by
+    exact Fin.le_iff_val_le_val.mp (find_first_is_first f ⟨j, jlt⟩ ⟨hjxpos, hjyz, hjuleft⟩)
+  -- Rewrite the run path as a trace
+  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have j'nz : j' ≠ 0 := by
+    intro j'z
+    absurd hj'uleft; push_neg
+    rw [getElem_congr_idx j'z, getElem_congr_coll htrace]
+    rw [trace_getElem_zero_of_nonnil]; swap
+    · apply List.ne_nil_of_length_pos
+      rwa [trace_length]
+    unfold run_start uvec_up uvec_left; simp
+  have j'pos : 0 < j' := Nat.pos_of_ne_zero j'nz
+  -- Write step j' in terms of the previous step
+  have hns := trace_getElem_recurrence' L run_start BL j' (Nat.pos_of_ne_zero j'nz) j'lt
+  have huns := congrArg (undo_next_step BL) hns
+  have j'plt : j' - 1 < L :=
+    lt_trans (Nat.sub_lt j'pos Nat.zero_lt_one) j'lt
+  let rs := (trace L run_start BL)[j' - 1]'(by rwa [trace_length])
+  have hvalid := run_start_valid_of_nice D p hnice (n + 1)
+  -- In order to use 'undo_next_step' we need to show that the
+  -- wall next to 'rs' is in-fact a wall.
+  have hblocked : left_of_runner rs ∈ BL :=
+    trace_wall_blocked_of_valid L run_start BL hvalid rs (List.getElem_mem _)
+  -- We also need to show that 'rs' is not blocked
+  have hnotblock : (loc rs) ∉ BL :=
+    trace_avoids_blocked L run_start BL hvalid.1 rs (List.getElem_mem _)
+  rw [next_step_undo_cancel _ _ hnotblock hblocked] at huns
+  unfold rs at huns
+  rw [← getElem_congr_coll htrace] at huns; swap; · exact j'lt
+  rw [← getElem_congr_coll htrace] at huns; swap; · exact j'plt
+  unfold undo_next_step at huns
+  split_ifs at huns with h₀ h₁
+  · -- If the move from 'rs' was a right turn, then
+    -- rs was facing south, which satisfies the goal
+    use (j' - 1)
+    use lt_of_lt_of_le (Nat.sub_lt j'pos Nat.zero_lt_one) j'le
+    rw [← huns]
+    constructor
+    · convert hj'xpos using 1
+    constructor
+    · convert hj'yz using 1
+    · unfold undo_turn_right uvec_down; simp
+      rw [hj'uleft]
+      exact ⟨rfl, rfl⟩
+  · -- If the move from 'rs' was a forward step, that contradicts
+    -- the fact that rs was the first west-facing step on the x-axis
+    -- First show that j'-1 also satisfies f
+    have rssat : f ⟨j' - 1, j'plt⟩ := by
+      unfold f; simp
+      rw [← huns]
+      unfold undo_move_forward; simp
+      constructor
+      · rw [hj'uleft]
+        apply le_trans _ hj'xpos
+        unfold uvec_left; simp
+      constructor
+      · convert hj'yz using 1
+        rw [hj'uleft]
+        unfold uvec_left; simp
+      · exact hj'uleft
+    -- Now demonstrate the contradiction
+    absurd Fin.le_iff_val_le_val.mp (find_first_is_first f ⟨j' - 1, j'plt⟩ rssat); simp
+    exact Nat.sub_lt (Nat.pos_of_ne_zero j'nz) (Nat.one_pos)
+  · -- If the move from 'rs' was a left turn, then rs.y = -1 and we can
+    -- use 'run_path_intersects_posx_of_south' to find either a previous
+    -- step which satisfies the goal, or a previous step that was facing
+    -- west on the x-axis (a contradiction)
+    have hj'pyneg : (RunPath D p n)[j' - 1].y < 0 := by
+      rw [← huns]
+      unfold undo_turn_left; simp
+      rw [hj'uleft, hj'yz]
+      unfold uvec_left; simp
+    rcases run_path_intersects_posx_of_south D p n hnice (j' - 1) j'plt hj'pyneg with ⟨i, ilt, hinn, hiyz, hiu⟩
+    have ilt' : i < j' :=
+      lt_trans ilt (Nat.sub_lt (Nat.pos_of_ne_zero j'nz) (Nat.one_pos))
+    rcases hiu with hsouth | hwest
+    · -- If on step 'i' the runner is on the x-axis facing south, we have our solution
+      use i, lt_of_lt_of_le ilt' j'le
+    -- Otherwise demonstrate a contradiction
+    absurd Fin.le_iff_val_le_val.mp (find_first_is_first f ⟨i, lt_trans ilt' j'lt⟩ ⟨hinn, hiyz, hwest⟩); simp
+    exact ilt'
