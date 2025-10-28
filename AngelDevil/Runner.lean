@@ -780,6 +780,32 @@ lemma make_run_x_nonneg (D : Devil) (p n : Nat) :
   absurd (hrs' ▸ xeq); push_neg
   exact ne_of_lt ((Int.zero_sub _) ▸ (Int.sub_one_lt_of_le lers₀x))
 
+-- For every nice devil and any run length, the run's starting cell is "valid"
+-- That is, it is unblocked and the cell to its left is a wall.
+lemma run_start_valid_of_nice (D : Devil) (p : Nat) (hnice : nice D p) :
+  ∀ n, run_start_valid (make_block_list D p n) run_start := by
+  intro n
+  constructor
+  · intro h
+    rcases List.mem_union_iff.mp h with lhs | rhs
+    · rcases List.getElem_of_mem lhs with ⟨i, ilt, hi⟩
+      have ilt' : i < n + 1 := by rwa [make_run_eaten_length] at ilt
+      rw [make_run_eaten D p n i ilt', ← make_run_subjourney D p i n ilt'] at hi
+      unfold loc run_start at hi; simp at hi
+      apply not_nice_of_eats_origin D p _ hnice
+      use (make_run D p n).A, i, (by rwa [make_run_journey_steps])
+    · rw [make_run_eaten_length] at rhs
+      absurd west_wall_xcoord_of_mem p (n + 1) _ rhs
+      unfold run_start loc; simp
+  · apply List.mem_union_iff.mpr; right
+    rw [make_run_eaten_length]
+    unfold left_of_runner run_start uvec_up; simp
+    apply west_wall_mem
+    · apply neg_le.mp
+      rw [neg_zero]
+      exact Int.zero_le_ofNat _
+    · exact Int.zero_le_ofNat _
+
 -- This theorem is a bit odd, but useful in several places.
 -- It states that a 'make_run' never steps on a later block list, given
 -- that it never steps on its own block list and the devil is nice.
