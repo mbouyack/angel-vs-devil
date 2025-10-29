@@ -1193,6 +1193,21 @@ lemma run_path_length_increasing_of_ppos
   -- Use the sprint length lower bound to finish the goal
   exact lt_of_lt_of_le ppos (Nat.le_sub_one_of_lt (h ▸ (sprint_length_lb p start blocked)))
 
+-- If the angel has non-zero power, the run path will reach arbitrary length
+lemma run_path_exist_of_length_of_ppos (D : Devil) (p : Nat) (ppos : 0 < p) :
+  ∀ N, ∃ n, N < (RunPath D p n).length := by
+  intro N
+  by_cases Nz : N = 0
+  · use 0; subst Nz
+    rw [run_path_of_length_zero, List.length_singleton]
+    norm_num
+  rename' Nz => Nnz; push_neg at Nnz
+  have Npos : 0 < N := Nat.pos_of_ne_zero Nnz
+  rcases run_path_exist_of_length_of_ppos D p ppos (N - 1) with ⟨n, h⟩
+  use n + 1
+  apply lt_of_le_of_lt (Nat.le_of_lt_add_one ((Nat.sub_lt_iff_lt_add (Nat.one_le_of_lt Npos)).mp h))
+  convert run_path_length_increasing_of_ppos D p (n + 1) (Nat.add_one_pos _) ppos
+
 -- If the devil is "nice", the runner will never visit a cell that was previously eaten.
 -- Note that this result is more general than 'make_run_journey_allowed_of_nice' in that
 -- it applies to *all* cells visited by the runner, not just those in the journey.
