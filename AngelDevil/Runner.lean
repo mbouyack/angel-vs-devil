@@ -1786,39 +1786,37 @@ lemma run_path_xaxis_west_has_earlier_xaxis_south (D : Devil) (p n : Nat) (hnice
     absurd Fin.le_iff_val_le_val.mp (find_first_is_first f ⟨i, lt_trans ilt' j'lt⟩ ⟨hinn, hiyz, hwest⟩); simp
     exact ilt'
 
--- If the run path loops, there is some step in the path on the
--- positive x-axis, facing south.
-lemma run_path_xaxis_south_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D p) :
-  list_has_dupes (RunPath D p n) → ∃ rs ∈ (RunPath D p n),
-  0 ≤ rs.x ∧ rs.y = 0 ∧ rs.u = uvec_down := by
-  intro hdupes
-  let ⟨_, _, _, blt, _⟩ := hdupes
+abbrev south_facing_yz_xnn (rs : RunState) :=
+  0 ≤ rs.x ∧ rs.y = 0 ∧ rs.u = uvec_down
+
+-- If any step in the run path returns to the start, there must be
+-- some earlier south-facing step on the non-negative x-axis
+lemma run_path_start_repeats_has_earlier_sfyzxnn (D : Devil) (p n : Nat) (hnice : nice D p) :
+  ∀ i (ilt : i < (RunPath D p n).length), i ≠ 0 → (RunPath D p n)[i] = run_start →
+  ∃ j, ∃ (jlt : j < i), south_facing_yz_xnn ((RunPath D p n)[j]'(lt_trans jlt ilt)) := by
+  intro i ilt inz hTi
   let BL := make_block_list D p (n + 1)
   let L := (RunPath D p n).length
   let T := trace L run_start BL
+  -- Prove the run path and trace are equivalent
+  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
   have Lpos : 0 < L :=
-    lt_of_le_of_lt (Nat.zero_le _) blt
+    lt_of_le_of_lt (Nat.zero_le _) ilt
   have hnnil : T ≠ [] := by
     apply List.ne_nil_of_length_pos
     rwa [trace_length]
-  let i := (find_first_dupe T hnnil).1
-  have ilt : i < T.length := Fin.prop _
-  have ilt' : i < L := by
-    unfold T at ilt
-    rwa [trace_length] at ilt
-  -- Get the equivalent trace
-  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have ilt' : i < T.length := by
+    unfold T
+    rwa [← htrace]
   have hvalid := run_start_valid_of_nice D p hnice (n + 1)
-  have hdupes' : list_has_dupes T := by rwa [htrace] at hdupes
+  --have hdupes' : list_has_dupes T := by rwa [htrace] at hdupes
   -- As previously proven, the first repeated state is 'run_start', so T[i] = run_start
-  have hTi : T[i] = run_start := trace_start_is_first_dupe L run_start BL hdupes' hvalid
-  have ipos : 0 < i := by
-    rcases first_dupe_is_dupe _ hdupes' with ⟨_, hlt, _⟩
-    exact lt_of_le_of_lt (Nat.zero_le _) hlt
-  have inz : i ≠ 0 := Nat.ne_zero_of_lt ipos
+  --have hTi : T[i] = run_start := trace_start_is_first_dupe L run_start BL hdupes' hvalid
+  have ipos : 0 < i := Nat.pos_of_ne_zero inz
   have iplt : i - 1 < L :=
-    lt_of_le_of_lt (Nat.sub_le _ _) ilt'
-  have := congrArg (undo_next_step BL) ((trace_getElem_recurrence' L run_start BL i ipos ilt') ▸ hTi)
+    lt_of_le_of_lt (Nat.sub_le _ _) ilt
+  rw [getElem_congr_coll htrace] at hTi
+  have := congrArg (undo_next_step BL) ((trace_getElem_recurrence' L run_start BL i ipos ilt) ▸ hTi)
   -- In order to use 'undo_next_step' we need to show that the
   -- wall next to T[i-1] is in-fact a wall.
   have hblocked : left_of_runner T[i - 1] ∈ BL :=
@@ -1844,8 +1842,8 @@ lemma run_path_xaxis_south_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D
       unfold uvec_left; simp
     rcases run_path_xaxis_west_has_earlier_xaxis_south
       D p n hnice (i - 1) iplt ⟨hxnonneg, hyz, hwest⟩ with ⟨j, jlt, _⟩
-    have jlt' : j < L := lt_trans jlt iplt
-    use (RunPath D p n)[j], List.getElem_mem jlt'
+    have jlt' : j < i := lt_of_lt_of_le jlt (Nat.sub_le _ _)
+    use j, jlt'
   · -- If the path moved forward to return to 'run_start', it was
     -- previously south of the x-axis. That means we can use
     -- 'run_path_intersects_xaxis_of_south' to show that the path
@@ -1855,17 +1853,52 @@ lemma run_path_xaxis_south_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D
       rw [getElem_congr_coll htrace, this]; simp
     rcases run_path_intersects_xaxis_of_south D p n hnice (i - 1) iplt hyneg with ⟨j, jlt, hxnonneg, hyz, hudir⟩
     have jlt' : j < L := lt_trans jlt iplt
+    have jlt'' := lt_of_lt_of_le jlt (Nat.sub_le _ _)
     rcases hudir with lhs | rhs
     · -- If the path was previously on the x-axis facing south, that closes the goal
-      use (RunPath D p n)[j], List.getElem_mem jlt'
+      exact ⟨j, jlt'', hxnonneg, hyz, lhs⟩
     · -- Otherwise we can find some earlier step on the path where
       -- the runner *was* on the x-axis facing south
       rcases run_path_xaxis_west_has_earlier_xaxis_south
         D p n hnice j jlt' ⟨hxnonneg, hyz, rhs⟩ with ⟨k, klt, _⟩
-      have klt' : k < L := lt_trans klt jlt'
-      use (RunPath D p n)[k], List.getElem_mem klt'
+      have klt' : k < i := lt_trans klt jlt''
+      use k, klt'
   · -- Lastly, if the path returned to 'run_start' by making a left turn
     -- it was previously west of the y-axis, which is impossible.
     unfold undo_turn_left run_start uvec_up at this; simp at this
     absurd run_path_x_nonneg D p n (RunPath D p n)[i - 1] (List.getElem_mem iplt); push_neg
     rw [getElem_congr_coll htrace, this]; simp
+
+-- If the run path loops, there is some step in the path on the
+-- positive x-axis, facing south. Note that this theorem only
+-- states that such a cell exists. It says nothing about the
+-- relative order of the duplicate and sfyzxnn cell
+-- (for that we need the previous theorem)
+lemma run_path_xaxis_south_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D p) :
+  list_has_dupes (RunPath D p n) → ∃ rs ∈ (RunPath D p n), south_facing_yz_xnn rs := by
+  intro hdupes
+  let BL := make_block_list D p (n + 1)
+  let L := (RunPath D p n).length
+  let T := trace L run_start BL
+  have Lpos : 0 < L := run_path_length_pos D p n
+  have hnnil : T ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [trace_length]
+  -- Prove the run path and trace are equivalent
+  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have hvalid := run_start_valid_of_nice D p hnice (n + 1)
+  let i := (find_first_dupe T hnnil).1
+  have ilt : i < T.length := Fin.prop _
+  have ilt' : i < L := by rwa [trace_length] at ilt
+  have hdupes' : list_has_dupes T := by
+    unfold T
+    rwa [← htrace]
+  have hTi : T[i] = run_start := trace_start_is_first_dupe L run_start BL hdupes' hvalid
+  let ⟨_, lbi, _⟩ := first_dupe_is_dupe T hdupes'
+  have inz : i ≠ 0 := Nat.ne_zero_of_lt lbi
+  have hTi' : (RunPath D p n)[i] = run_start := by
+    rwa [getElem_congr_coll htrace]
+  -- Use our previous result to find the location of an 'sfyzxnn' step
+  rcases run_path_start_repeats_has_earlier_sfyzxnn D p n hnice i ilt' inz hTi' with ⟨j, jlt, _⟩
+  have jlt' : j < L := lt_trans jlt ilt'
+  use (RunPath D p n)[j], List.getElem_mem jlt'
