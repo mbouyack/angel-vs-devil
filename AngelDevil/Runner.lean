@@ -1166,6 +1166,23 @@ lemma run_path_length_pos (D : Devil) (p n : Nat) : 0 < (RunPath D p n).length :
   · exact Nat.add_one_le_of_lt (List.length_pos_of_ne_nil (RunBuilder.nonnil _ _ (List.getLast_mem _)))
   exact Nat.add_pos_left (run_path_length_pos D p (n - 1)) _
 
+-- The run always starts at the 'run_start'!
+lemma run_path_getElem_zero (D : Devil) (p n : Nat) :
+  (RunPath D p n)[0]'(run_path_length_pos D p n) = run_start := by
+  by_cases nz : n = 0
+  · subst nz
+    rw [getElem_congr_coll (run_path_of_length_zero D p)]; simp
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  by_cases pz : p = 0
+  · subst pz
+    rw [getElem_congr_coll (run_path_pzero D n)]; simp
+  rename' pz => pnz; push_neg at pnz
+  have ppos : 0 < p := Nat.pos_of_ne_zero pnz
+  rw [getElem_congr_coll (run_path_recurrence D p n npos)]
+  rw [List.getElem_append_left (run_path_length_pos D p (n - 1))]
+  exact run_path_getElem_zero D p (n - 1)
+
 -- As the number of sprints in the run path increases, the length of
 -- the run path also increases or remains constant.
 lemma run_path_length_non_decreasing (D : Devil) (p n : Nat) (npos : 0 < n) :
