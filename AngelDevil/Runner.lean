@@ -1902,3 +1902,22 @@ lemma run_path_xaxis_south_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D
   rcases run_path_start_repeats_has_earlier_sfyzxnn D p n hnice i ilt' inz hTi' with ⟨j, jlt, _⟩
   have jlt' : j < L := lt_trans jlt ilt'
   use (RunPath D p n)[j], List.getElem_mem jlt'
+
+-- If the run path loops, the first repeated step is the first
+lemma run_path_first_dupe_is_run_start
+  (D : Devil) (p n : Nat) (hnice : nice D p) (hdupe : list_has_dupes (RunPath D p n)) :
+  (RunPath D p n)[find_first_dupe (RunPath D p n) (list_ne_nil_of_has_dupes _ hdupe)] = run_start := by
+  -- Rewrite the run path as a trace and use 'trace_start_is_first_dupe'
+  let BL := make_block_list D p (n + 1)
+  let L := (RunPath D p n).length
+  let T := trace L run_start BL
+  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have hdupe' : list_has_dupes T := by
+    unfold T
+    rwa [← htrace]
+  have hnnil : T ≠ [] := list_ne_nil_of_has_dupes _ hdupe'
+  let i := (find_first_dupe T hnnil).1
+  have ilt : i < T.length := Fin.prop _
+  rw [getElem_congr_coll htrace]
+  have hvalid := run_start_valid_of_nice _ _ hnice (n + 1)
+  convert trace_start_is_first_dupe L run_start BL hdupe' hvalid
