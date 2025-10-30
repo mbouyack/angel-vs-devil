@@ -491,7 +491,7 @@ lemma runstate_card (N : Nat) : (RS N).toFinset.card = (2 * N + 1) * (2 * N + 1)
 -- If the nice devil wins, then a long enough RunPath must eventually loop
 lemma run_path_loops_of_nice_devil_wins
   (D : Devil) (p : Nat) (hnice : nice D p) (hdwins : devil_wins' D p) :
-  ∃ N, ∀ n, N < (RunPath D p n).length → ¬list_nodupes (RunPath D p n) := by
+  ∃ N, ∀ n, N < (RunPath D p n).length → list_has_dupes (RunPath D p n) := by
   -- First get the size of the escape square
   rcases run_path_trapped_of_nice_devil_wins D p hnice hdwins with ⟨N, hclose⟩
   -- Use the cardinality of 'RS N' as the lower bound for the length of the RunPath
@@ -510,10 +510,245 @@ lemma run_path_loops_of_nice_devil_wins
     exact hclose n (RunPath D p n)[i] (List.get_mem _ _)
   -- Use the pigeonhole principle to conclude that the RunPath contains a duplicate state
   rcases Finset.exists_ne_map_eq_of_card_lt_of_maps_to cardlt hmapsto with ⟨i, _, j, _, inej, hij⟩
-  unfold list_nodupes; push_neg
+  unfold list_has_dupes
   by_cases ilt : i.val < j.val
   · use i.val, j.val, ilt, j.2
     exact hij
   rename' ilt => jle; push_neg at jle
   use j.val, i.val, lt_of_le_of_ne jle (Fin.val_ne_iff.mpr inej).symm, i.2
   exact hij.symm
+
+-- If the devil wins, then some "nice" devil can force the runner to
+-- return to the x-axis. We'll bundle all the objects which describe
+-- this arrangement into a structure called an 'Endgame'. The final
+-- argument of the proof will be to show that an "Endgame 2" cannot
+-- exist.
+structure Endgame (p : Nat) where
+  D : Devil
+  n : Nat
+  i : Nat
+  T : List RunState
+  hlt : i < (RunPath D p n).length
+  hlb : (RunPath D p (n - 1)).length ≤ i
+  hnice : nice D p
+  hpath : T = List.take (i + 1) (RunPath D p n)
+  hnodupe : list_nodupes T
+  hynonneg : ∀ rs ∈ T, 0 ≤ rs.y
+  hwest : ∀ j (jlt : j < T.length),
+    (T[j]'jlt).y = 0 → (T[j]'jlt).u ≠ uvec_left
+
+-- Prove that for some 'n' the run of n sprints loops
+lemma loop_sprint_exists_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  ∃ n, list_has_dupes (RunPath D p n) := by
+  rcases run_path_loops_of_nice_devil_wins D p hnice hwins with ⟨N, h⟩
+  rcases run_path_exist_of_length_of_ppos D p ppos N with ⟨n, Nlt⟩
+  exact ⟨n, h n Nlt⟩
+
+-- Find the first sprint on which the runner returns to the start
+def find_loop_sprint_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) : Nat :=
+  Nat.find (loop_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
+
+-- The run path found by 'find_loop_sprint_of_nice_devil_wins' does in-fact contain a loop
+lemma find_loop_has_loop
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  list_has_dupes (RunPath D p (find_loop_sprint_of_nice_devil_wins D p ppos hnice hwins)) :=
+  Nat.find_spec (loop_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
+
+-- Prove that for some 'n' the run path of n sprints intersects the x-axis, facing south
+lemma xaxis_sprint_exists_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  ∃ n, ∃ rs ∈ (RunPath D p n), south_facing_yz_xnn rs := by
+  rcases run_path_loops_of_nice_devil_wins D p hnice hwins with ⟨N, h⟩
+  rcases run_path_exist_of_length_of_ppos D p ppos N with ⟨n, Nlt⟩
+  exact ⟨n, run_path_sfyzxnn_of_path_loops D p n hnice (h n Nlt)⟩
+
+-- Find the first sprint in which the runner intersects the x-axis, facing south
+def find_xaxis_sprint_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) : Nat :=
+  Nat.find (xaxis_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
+
+-- The run path found by 'find_xaxis_sprint_of_nice_devil_wins' does in-fact
+-- intersect the x-axis, facing south
+lemma find_xaxis_sprint_intersects_xaxis
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  ∃ rs ∈ (RunPath D p (find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins)),
+  south_facing_yz_xnn rs :=
+  Nat.find_spec (xaxis_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
+
+lemma xaxis_step_exists_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  ∃ i, (fun RP ↦ ∃ (ilt : i < RP.length), south_facing_yz_xnn RP[i])
+  (RunPath D p (find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins)) := by
+  rcases find_xaxis_sprint_intersects_xaxis D p ppos hnice hwins with ⟨rs, rsmem, hrs⟩
+  rcases List.getElem_of_mem rsmem with ⟨i, ilt, hi⟩
+  use i, ilt
+  rwa [hi]
+
+-- Find the first step on which the runner intersects the x-axis, facing south
+def find_xaxis_step_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) : Nat :=
+  Nat.find (xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins)
+
+-- The step found by 'find_xaxis_step_of_nice_devil_wins' is in-fact on the x-axis, facing south
+lemma find_xaxis_step_is_xaxis
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  (fun i ↦ ((fun RP : List RunState ↦ ∃ (ilt : i < RP.length), south_facing_yz_xnn RP[i])
+   (RunPath D p (find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins))))
+  (find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins) :=
+  Nat.find_spec (xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins)
+
+-- The first step in the run path on the x-axis facing south appears before the
+-- end of the first sprint in which this occurs.
+-- Note that this corresponds to 'hlt' in the specification of an Endgame
+lemma find_xaxis_step_of_nice_devil_wins_lt
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
+  find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins <
+  (RunPath D p (find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins)).length := by
+  let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+  let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+  change i < (RunPath D p n).length
+  rcases xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins with ⟨j, jlt, hj⟩
+  apply lt_of_le_of_lt _ jlt
+  -- Since step j is an x-axis step and i is the first such step, i ≤ j
+  apply Nat.find_min' (xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins)
+  use jlt
+
+-- Construct an endgame, given a nice devil that wins
+def endgame_of_nice_devil_wins
+  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) : Endgame p where
+  D := D
+  n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+  i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+  T := List.take ((find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins) + 1)
+       (RunPath D p (find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins))
+  hlt := find_xaxis_step_of_nice_devil_wins_lt D p ppos hnice hwins
+  hlb := by
+    let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+    let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+    change (RunPath D p (n - 1)).length ≤ i
+    have inz : i ≠ 0 := by
+      intro iz
+      rcases Nat.find_spec (xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins) with ⟨_, _, _, hsouth⟩
+      absurd hsouth; push_neg
+      change (RunPath D p n)[i].u ≠ uvec_down
+      rw [getElem_congr_idx iz, run_path_getElem_zero]
+      unfold run_start uvec_down uvec_up; simp
+    have ipos : 0 < i := Nat.pos_of_ne_zero inz
+    by_cases nz : n = 0
+    · rw [nz, Nat.zero_sub, run_path_of_length_zero, List.length_singleton]
+      exact Nat.one_le_of_lt ipos
+    rename' nz => nnz; push_neg at nnz
+    have npos : 0 < n := Nat.pos_of_ne_zero nnz
+    by_contra! ilt
+    absurd Nat.sub_one_lt nnz; push_neg
+    -- Show that if i < (RunPath D p (n - 1)).length, the nth sprint is
+    -- not the first sprint that intersects the x-axis, which is a contradiction
+    apply Nat.find_min' (xaxis_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
+    let rs := (RunPath D p n)[i]'(find_xaxis_step_of_nice_devil_wins_lt D p ppos hnice hwins)
+    -- Show that rs is also a member of the run path with n-1 sprints
+    have rsmem : rs ∈ (RunPath D p (n - 1)) := by
+      unfold rs
+      rw [getElem_congr_coll (run_path_recurrence D p n npos)]
+      rw [List.getElem_append_left ilt]
+      exact List.getElem_mem ilt
+    use rs, rsmem
+    rcases Nat.find_spec (xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins) with ⟨_, _⟩
+    assumption
+  hnice := hnice
+  hpath := rfl
+  hnodupe := by
+    let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+    let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+    let L := (RunPath D p n).length
+    have hiex := xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins
+    rcases Nat.find_spec hiex with ⟨ilt, hi⟩
+    change i < L at ilt
+    change south_facing_yz_xnn (RunPath D p n)[i] at hi
+    --have ilt : i < L :=
+    --  find_xaxis_step_of_nice_devil_wins_lt D p ppos hnice hwins
+    change list_nodupes (List.take (i + 1) (RunPath D p n))
+    -- Show that the goal follows trivially if the run path has no duplicates
+    -- then we can assume for the remainder of the proof that it does.
+    by_cases hdupe : list_nodupes (RunPath D p n)
+    · contrapose! hdupe
+      rw [list_not_nodupes] at *
+      rcases hdupe with ⟨a, b, alt, blt, hab⟩
+      have blt' : b < L := by
+        rw [List.length_take_of_le (Nat.add_one_le_of_lt ilt)] at blt
+        exact lt_of_le_of_lt (Nat.le_of_lt_add_one blt) ilt
+      rw [List.getElem_take, List.getElem_take] at hab
+      exact ⟨a, b, alt, blt', hab⟩
+    rw [list_not_nodupes] at hdupe
+    -- Reduce the goal to proving that the first 'sfyzxnn' step
+    -- appears before the first duplicate
+    rw [first_dupe_gt_iff_no_dupes_take _ hdupe _ (Nat.add_one_le_of_lt ilt)]
+    apply Nat.add_one_le_of_lt
+    -- Now use proof by contradiction:
+    -- If the first duplicate appears before the first 'sfyzxnn' step
+    -- there must be some even earlier 'sfyzxnn' step prior to that,
+    -- which is a contradiction.
+    by_contra! h
+    let b := (find_first_dupe (RunPath D p n) (list_ne_nil_of_has_dupes _ hdupe)).1
+    have blt : b < L := Fin.prop _
+    rcases first_dupe_is_dupe _ hdupe with ⟨_, hlt, _⟩
+    have bnz : b ≠ 0 := Nat.ne_zero_of_lt hlt
+    have hb : (RunPath D p n)[b] = run_start :=
+      run_path_first_dupe_is_run_start D p n hnice hdupe
+    rcases run_path_start_repeats_has_earlier_sfyzxnn D p n hnice b blt bnz hb with ⟨j, jlt, hj⟩
+    have jlt' : j < L := lt_trans jlt blt
+    -- Since 'i' is the location of the first sfyzxnn step,
+    -- it must be at least as early as 'j'
+    have ilej : i ≤ j := Nat.find_min' hiex ⟨jlt', hj⟩
+    -- Now combine all the inequalities to reach a contradiction
+    exact (lt_self_iff_false _).mp (lt_of_le_of_lt ilej (lt_of_lt_of_le jlt h))
+  hynonneg := by
+    intro rs rsmem
+    by_contra! rsyneg
+    let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+    let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+    let L := (RunPath D p n).length
+    have hiex := xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins
+    rcases Nat.find_spec hiex with ⟨ilt, hi⟩
+    change i < L at ilt
+    change south_facing_yz_xnn (RunPath D p n)[i] at hi
+    change rs ∈ List.take (i + 1) (RunPath D p n) at rsmem
+    rcases List.mem_take_iff_getElem.mp rsmem with ⟨j, jlt, hj⟩
+    rw [min_eq_left (Nat.add_one_le_of_lt ilt)] at jlt
+    have jlt' : j < L := lt_of_le_of_lt (Nat.le_of_lt_add_one jlt) ilt
+    -- Let 'k' be the point prior to 'j' where the path crossed the x-axis
+    rcases run_path_has_earlier_sfyzxnn_of_south D p n hnice j jlt' (hj ▸ rsyneg) with ⟨k, klt, hk⟩
+    have klt' : k < L := lt_trans klt jlt'
+    -- Since 'i' is the first point at which the path crossed the x-axis
+    -- 'i' must be no later than 'k'. This leads to a contradiction.
+    have ilek : i ≤ k := Nat.find_min' hiex ⟨klt', hk⟩
+    exact not_lt_of_ge (le_trans (Nat.le_of_lt_add_one jlt) ilek) klt
+  hwest := by
+    intro j jlt hyz
+    let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+    let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+    let L := (RunPath D p n).length
+    have hiex := xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins
+    rcases Nat.find_spec hiex with ⟨ilt, hi⟩
+    change i < L at ilt
+    change j < (List.take (i + 1) (RunPath D p n)).length at jlt
+    change (List.take (i + 1) (RunPath D p n))[j].y = 0 at hyz
+    change (List.take (i + 1) (RunPath D p n))[j].u ≠ uvec_left
+    have jlt' : j < i + 1 := by
+      rwa [List.length_take_of_le (Nat.add_one_le_of_lt ilt)] at jlt
+    have jlt'' : j < L := lt_of_le_of_lt (Nat.le_of_lt_add_one jlt') ilt
+    have hjxnn : 0 ≤ (RunPath D p n)[j].x :=
+      run_path_x_nonneg D p n (RunPath D p n)[j] (List.getElem_mem jlt'')
+    -- If the path is ever on the x-axis facing west,
+    -- there must have been an earlier step facing south.
+    -- This will lead to a contradiction.
+    rw [List.getElem_take] at *
+    by_contra! hwest
+    have := run_path_xaxis_west_has_earlier_xaxis_south D p n hnice j jlt'' ⟨hjxnn, hyz, hwest⟩
+    rcases this with ⟨k, klt, hk⟩
+    have klt' : k < L := lt_trans klt jlt''
+    -- Since 'i' is the first point at which the path crossed the x-axis
+    -- 'i' must be no later than 'k'. This leads to a contradiction.
+    have ilek : i ≤ k := Nat.find_min' hiex ⟨klt', hk⟩
+    exact not_lt_of_ge (le_trans (Nat.le_of_lt_add_one jlt') ilek) klt
