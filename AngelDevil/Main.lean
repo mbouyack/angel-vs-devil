@@ -536,6 +536,11 @@ structure Endgame (p : Nat) where
   hynonneg : ∀ rs ∈ T, 0 ≤ rs.y
   hwest : ∀ j (jlt : j < T.length),
     (T[j]'jlt).y = 0 → (T[j]'jlt).u ≠ uvec_left
+  hsouth : south_facing_yz_xnn (T.getLast (by
+    apply List.ne_nil_of_length_pos
+    rw [hpath, List.length_take_of_le (Nat.add_one_le_of_lt hlt)]
+    exact Nat.add_one_pos _
+  ))
 
 -- Prove that for some 'n' the run of n sprints loops
 lemma loop_sprint_exists_of_nice_devil_wins
@@ -752,3 +757,15 @@ def endgame_of_nice_devil_wins
     -- 'i' must be no later than 'k'. This leads to a contradiction.
     have ilek : i ≤ k := Nat.find_min' hiex ⟨klt', hk⟩
     exact not_lt_of_ge (le_trans (Nat.le_of_lt_add_one jlt') ilek) klt
+  hsouth := by
+    rw [List.getLast_eq_getElem, List.getElem_take]
+    let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
+    let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
+    let L := (RunPath D p n).length
+    have hiex := xaxis_step_exists_of_nice_devil_wins D p ppos hnice hwins
+    rcases Nat.find_spec hiex with ⟨ilt, hi⟩
+    convert hi
+    change i < L at ilt
+    rw [List.length_take_of_le (Nat.add_one_le_of_lt ilt)]
+    rw [Nat.add_one_sub_one]
+    rfl
