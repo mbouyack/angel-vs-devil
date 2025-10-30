@@ -398,3 +398,36 @@ lemma first_dupe_is_dupe {α : Type} [DecidableEq α] (L : List α) (hdupe : lis
   have blt' : b < L.length :=
     lt_of_le_of_lt (Nat.le_of_lt_add_one blt) k.2
   exact first_dupe_is_first L hdupe a b alt blt' hab
+
+-- Taking the first 'n' elements from a list with duplicates
+-- results in a list of no duplicates if-and-only if
+-- n ≤ find_first_dupe
+lemma first_dupe_gt_iff_no_dupes_take
+  {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) :
+  ∀ n ≤ L.length, list_nodupes (L.take n) ↔
+  n ≤ find_first_dupe L (list_ne_nil_of_has_dupes _ hdupe) := by
+  intro n nle
+  have hnnil : L ≠ [] := list_ne_nil_of_has_dupes _ hdupe
+  let i := (find_first_dupe L hnnil).1
+  have ilt : i < L.length := Fin.prop _
+  rcases first_dupe_is_dupe L hdupe with ⟨j, jlt, hij⟩
+  have jlt' : j < L.length := lt_trans jlt ilt
+  constructor
+  · intro h
+    contrapose! h
+    rw [list_not_nodupes]
+    use j, i, jlt
+    use by rwa [List.length_take_of_le nle]
+    rwa [List.getElem_take, List.getElem_take]
+  · intro h
+    contrapose! h
+    rw [list_not_nodupes] at h
+    rcases h with ⟨a, b, alt, blt, hab⟩
+    have blt' : b < n := by
+      rwa [List.length_take_of_le nle] at blt
+    rw [List.getElem_take, List.getElem_take] at hab
+    -- Since 'find_first_dupe' is the first duplicate,
+    -- it must be less-than or equal to 'b'
+    -- (which is also the location of a duplicate)
+    apply lt_of_le_of_lt _ blt'
+    exact first_dupe_is_first L hdupe a b alt (lt_of_lt_of_le blt' nle) hab
