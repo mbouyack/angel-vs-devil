@@ -1666,15 +1666,15 @@ lemma run_path_intersects_xaxis_of_south (D : Devil) (p n : Nat) (hnice : nice D
       rw [hright']
       unfold uvec_right; simpa
 
+abbrev south_facing_yz_xnn (rs : RunState) :=
+  0 ≤ rs.x ∧ rs.y = 0 ∧ rs.u = uvec_down
+
 -- If the runner is ever on the positive x-axis facing west,
 -- it was previously on the positive x-axis facing south
 lemma run_path_xaxis_west_has_earlier_xaxis_south (D : Devil) (p n : Nat) (hnice : nice D p) :
   ∀ j (jlt : j < (RunPath D p n).length),
   0 ≤ (RunPath D p n)[j].x ∧ (RunPath D p n)[j].y = 0 ∧ (RunPath D p n)[j].u = uvec_left →
-  ∃ i, ∃ (ilt : i < j),
-  0 ≤ ((RunPath D p n)[i]'(lt_trans ilt jlt)).x ∧
-  ((RunPath D p n)[i]'(lt_trans ilt jlt)).y = 0 ∧
-  ((RunPath D p n)[i]'(lt_trans ilt jlt)).u = uvec_down := by
+  ∃ i, ∃ (ilt : i < j), south_facing_yz_xnn ((RunPath D p n)[i]'(lt_trans ilt jlt)) := by
   intro j jlt ⟨hjxpos, hjyz, hjuleft⟩
   let BL := make_block_list D p (n + 1)
   let L := (RunPath D p n).length
@@ -1786,8 +1786,21 @@ lemma run_path_xaxis_west_has_earlier_xaxis_south (D : Devil) (p n : Nat) (hnice
     absurd Fin.le_iff_val_le_val.mp (find_first_is_first f ⟨i, lt_trans ilt' j'lt⟩ ⟨hinn, hiyz, hwest⟩); simp
     exact ilt'
 
-abbrev south_facing_yz_xnn (rs : RunState) :=
-  0 ≤ rs.x ∧ rs.y = 0 ∧ rs.u = uvec_down
+-- If the runner ever wanders south of the x-axis, there must be
+-- some prior south-facing step with 0 ≤ x and y = 0
+lemma run_path_has_earlier_sfyzxnn_of_south (D : Devil) (p n : Nat) (hnice : nice D p) :
+  ∀ (j : Nat) (jlt : j < (RunPath D p n).length), (RunPath D p n)[j].y < 0 →
+  ∃ (i : Nat) (ilt : i < j), south_facing_yz_xnn (RunPath D p n)[i] := by
+  intro j jlt hyneg
+  -- Get the point at which the path previously crossed the x-axis
+  rcases run_path_intersects_xaxis_of_south D p n hnice j jlt hyneg with ⟨i, ilt, hxnn, hyz, hudir⟩
+  rcases hudir with hsouth | hwest
+  · exact ⟨i, ilt, hxnn, hyz, hsouth⟩
+  -- Otherwise, find the even earlier 'sfyzxnn' step
+  have ilt' : i < (RunPath D p n).length := lt_trans ilt jlt
+  have := run_path_xaxis_west_has_earlier_xaxis_south D p n hnice i ilt' ⟨hxnn, hyz, hwest⟩
+  rcases this with ⟨k, klt, hk⟩
+  exact ⟨k, lt_trans klt ilt, hk⟩
 
 -- If any step in the run path returns to the start, there must be
 -- some earlier south-facing step on the non-negative x-axis
@@ -1874,7 +1887,7 @@ lemma run_path_start_repeats_has_earlier_sfyzxnn (D : Devil) (p n : Nat) (hnice 
 -- states that such a cell exists. It says nothing about the
 -- relative order of the duplicate and sfyzxnn cell
 -- (for that we need the previous theorem)
-lemma run_path_xaxis_south_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D p) :
+lemma run_path_sfyzxnn_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D p) :
   list_has_dupes (RunPath D p n) → ∃ rs ∈ (RunPath D p n), south_facing_yz_xnn rs := by
   intro hdupes
   let BL := make_block_list D p (n + 1)
