@@ -17,6 +17,10 @@ set_option linter.style.longLine false
 def manhattan (a b : Int × Int) : Nat :=
   Int.natAbs (b.1 - a.1) + Int.natAbs (b.2 - a.2)
 
+lemma manhattan_self (a : Int × Int) :
+  manhattan a a = 0 := by
+  unfold manhattan; simp
+
 -- The triangular inequality for Manhattan distance
 lemma manhattan_tri (a b c : Int × Int) :
   manhattan a c ≤ manhattan a b + manhattan b c := by
@@ -78,6 +82,11 @@ def segment_split_second (seg : TraceSegment) (k : Nat) (_ : seg.i ≤ k) (kle :
   ile := kle
   jlt := seg.jlt
 
+lemma segment_length_pos (seg : TraceSegment) :
+  0 < segment_length seg := by
+  unfold segment_length
+  exact Nat.add_one_pos _
+
 -- The length of the segment states is the same as the segment length
 lemma segment_states_length (seg : TraceSegment) :
   (segment_states seg).length = (segment_length seg) := by
@@ -86,6 +95,36 @@ lemma segment_states_length (seg : TraceSegment) :
   rw [List.length_drop, trace_length]
   apply Nat.add_one_le_of_lt (Nat.sub_lt_sub_right seg.ile _)
   apply (trace_length _ _ _) ▸ seg.jlt
+
+lemma segment_start_eq_getElem_zero (seg : TraceSegment) :
+  segment_start seg = (segment_states seg)[0]'(by
+    rw [segment_states_length, segment_length]
+    exact Nat.add_one_pos _
+  ) := by
+  unfold segment_start segment_states
+  rw [List.getElem_take, List.getElem_drop]
+  rw [getElem_congr_idx (Nat.add_zero _)]
+
+lemma segment_end_eq_getElem (seg : TraceSegment) :
+  segment_end seg = (segment_states seg)[segment_length seg - 1]'(by
+    rw [segment_states_length]
+    apply Nat.sub_one_lt (Nat.ne_zero_of_lt (segment_length_pos seg))
+  ) := by
+  unfold segment_end segment_states
+  rw [List.getElem_take, List.getElem_drop]; congr
+  rw [segment_length, Nat.add_one_sub_one]
+  apply (Nat.add_sub_cancel' _).symm
+  exact seg.ile
+
+lemma segment_split_first_start (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
+  segment_start (segment_split_first seg k lek kle) = segment_start seg := rfl
+
+lemma segment_split_second_end (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
+  segment_end (segment_split_second seg k lek kle) = segment_end seg := rfl
+
+lemma segment_split_overlap (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
+  segment_end (segment_split_first seg k lek kle) =
+  segment_start (segment_split_second seg k lek kle) := rfl
 
 -- Get the length of the first half of a split trace
 lemma segment_split_first_length (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
@@ -194,3 +233,71 @@ lemma segment_split_states (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (k
       exact le_of_lt (lt_of_le_of_lt lek (Nat.lt_add_one _))
     rw [Nat.sub_add_comm lek, Nat.sub_add_cancel]
     rwa [segment_states_length, segment_split_first_length] at lea
+
+-- Check if the 'move' between state 'a' and state 'a+1' is 'f'
+def check_for_move (seg : TraceSegment)
+  (f : RunState → RunState) (a : Nat) (alt : a + 1 < segment_length seg) : Prop :=
+  f ((segment_states seg)[a]'(by
+    rw [segment_states_length]
+    exact lt_trans (Nat.lt_add_one _) alt
+  )) = (segment_states seg)[a + 1]'(by rwa [segment_states_length])
+
+def segment_starts_with_move_forward (seg : TraceSegment) (h : 1 < segment_length seg) : Prop :=
+  check_for_move seg move_forward 0 h
+
+def segment_length_lb_prop (seg : TraceSegment) : Prop :=
+  manhattan (loc (segment_start seg)) (loc (segment_end seg)) ≤ segment_length seg
+
+-- Prove the segment length lower bound when the length is 1
+lemma segment_length_lb_case1 (seg : TraceSegment) (h : segment_length seg = 1) :
+  segment_length_lb_prop seg := by
+  unfold segment_length_lb_prop
+  unfold segment_length at h
+  -- If length = 1, i = j
+  have hij := le_antisymm seg.ile (Nat.le_of_sub_eq_zero (Nat.add_right_cancel h))
+  convert Nat.zero_le _
+  convert manhattan_self _ using 2
+  unfold segment_start segment_end
+  rw [getElem_congr_idx hij]
+
+-- Prove the induction case for the length lower bound when
+-- the segment begins with a 'move forward'
+lemma segment_length_lb_case2 (seg : TraceSegment) (h : 1 < segment_length seg) :
+  segment_starts_with_move_forward seg h →
+  segment_length_lb_prop (segment_split_second seg (seg.i + 1) (Nat.le_add_right _ _)
+    (Nat.add_one_le_of_lt (Nat.lt_of_sub_pos (Nat.pos_of_lt_add_left h)))) →
+  segment_length_lb_prop seg := by
+  unfold segment_length_lb_prop
+  intro hmf hllb
+  let k := seg.i + 1
+  have lek : seg.i ≤ k := Nat.le_add_right _ _
+  have kle : k ≤ seg.j :=
+    Nat.add_one_le_of_lt (Nat.lt_of_sub_pos (Nat.pos_of_lt_add_left h))
+  rw [segment_split_length seg k lek kle]
+  rw [segment_split_first_length]
+  rw [Nat.sub_add_comm (Nat.le_refl seg.i), Nat.sub_self, zero_add]
+  rw [add_right_comm, Nat.add_one_sub_one, add_comm]
+  let seg_first := segment_split_first seg k lek kle
+  let seg_second := segment_split_second seg k lek kle
+  apply le_trans (manhattan_tri _ _ _)
+  change manhattan _ (loc (segment_start seg_second)) + _ ≤ _
+  rw [← segment_split_first_start seg k lek kle]
+  rw [← segment_split_second_end seg k lek kle]
+  nth_rw 1 [← segment_split_overlap]
+  rw [add_comm]
+  convert Nat.add_le_add_right hllb 1
+  unfold segment_starts_with_move_forward check_for_move at hmf
+  rw [← segment_start_eq_getElem_zero, getElem_congr_idx (Nat.zero_add _)] at hmf
+  rw [← segment_split_first_start seg k lek kle] at hmf
+  have : segment_end seg_first = (segment_states seg)[1]'(by rwa [segment_states_length]) := by
+    rw [segment_end_eq_getElem, getElem_congr_coll (segment_split_first_states _ _ _ _)]
+    rw [List.getElem_take]; congr
+    rw [segment_split_first_length, Nat.add_one_sub_one]
+    unfold k
+    rw [add_comm, Nat.add_sub_cancel]
+  rw [← this] at hmf
+  rw [← hmf]
+  let s := segment_start seg_first
+  change manhattan (loc s) (loc (move_forward s)) = 1
+  unfold manhattan move_forward loc; simp
+  exact uvec_xabs_add_yabs_eq_one _
