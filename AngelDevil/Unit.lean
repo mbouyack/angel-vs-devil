@@ -125,6 +125,31 @@ def uvec_down : UVec := UVec.mk 0 (-1) (by simp)
 def uvec_left : UVec := UVec.mk (-1) 0 (by simp)
 def uvec_right : UVec := UVec.mk 1 0 (by simp)
 
+-- Define two useful functions on unit vectors
+def rotate_left (u : UVec) : UVec where
+  x := -u.y
+  y := u.x
+  unit := by
+    simp
+    rw [add_comm]
+    exact u.unit
+
+def rotate_right (u : UVec) : UVec where
+  x := u.y
+  y := -u.x
+  unit := by
+    simp
+    rw [add_comm]
+    exact u.unit
+
+lemma rotate_left_right_cancel (u : UVec) :
+  rotate_left (rotate_right u) = u := by
+  unfold rotate_left rotate_right; simp
+
+lemma rotate_right_left_cancel (u : UVec) :
+  rotate_right (rotate_left u) = u := by
+  unfold rotate_left rotate_right; simp
+
 -- Give a name to the Finset of unit vectors
 -- We will prove below that this set is complete.
 def uvec_finset : Finset UVec :=
