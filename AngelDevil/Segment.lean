@@ -446,8 +446,33 @@ lemma segment_length_lb_case2 (seg : TraceSegment) (h : 1 < segment_length seg) 
   convert le_trans (manhattan_tri _ _ _) (Nat.add_le_add (le_of_eq hman₀) hman₁)
   rw [add_comm, Nat.sub_one_add_one (Nat.ne_zero_of_lt h)]
 
--- Prove the segment length lower bound for 'L segments
+-- Prove the induction case for the length lower bound when
+-- the segment begins with a 'turn_right'
 lemma segment_length_lb_case3 (seg : TraceSegment) (h : 1 < segment_length seg) :
+  segment_starts_with_turn_right seg h →
+  segment_length_lb_prop (segment_split_second seg 1 h) →
+  segment_length_lb_prop seg := by
+  unfold segment_length_lb_prop
+  let seg_first := segment_split_first seg 1 h
+  let seg_second := segment_split_second seg 1 h
+  intro hmf hman₁
+  have ltsl : 1 < (segment_states seg).length := by rwa [segment_states_length]
+  have hman₀ : manhattan (loc (segment_start seg)) (loc ((segment_states seg)[1]'ltsl)) ≤ 1 := by
+    unfold segment_starts_with_turn_right check_for_move at hmf
+    apply le_of_lt (Nat.lt_add_one_of_le (le_of_eq _))
+    rw [getElem_congr_idx (Nat.zero_add 1)] at hmf
+    rw [← hmf, ← segment_start_eq_getElem_zero, manhattan]
+    unfold loc turn_right; simp
+  rw [← segment_split_overlap, segment_end_eq_getElem] at hman₁
+  rw [segment_split_first_states_getElem, segment_split_second_end] at hman₁
+  have idxrw := congrArg (fun n ↦ n - 1) (segment_split_first_length seg 1 h)
+  dsimp at idxrw
+  rw [getElem_congr_idx idxrw, segment_split_second_length] at hman₁
+  convert le_trans (manhattan_tri _ _ _) (Nat.add_le_add hman₀ hman₁)
+  rw [add_comm, Nat.sub_one_add_one (Nat.ne_zero_of_lt h)]
+
+-- Prove the segment length lower bound for 'L segments
+lemma segment_length_lb_case4 (seg : TraceSegment) (h : 1 < segment_length seg) :
   segment_is_L seg h → segment_length_lb_prop seg := by
   intro hL
   unfold segment_length_lb_prop
