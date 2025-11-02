@@ -63,23 +63,23 @@ def segment_states (seg : TraceSegment) : List RunState :=
 def segment_length (seg : TraceSegment) : Nat := seg.j - seg.i + 1
 
 -- Split the segment into two pieces and take the first part
-def segment_split_first (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) : TraceSegment where
+def segment_split_first (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) : TraceSegment where
   n := seg.n
   start := seg.start
   blocked := seg.blocked
   i := seg.i
-  j := k
-  ile := lek
-  jlt := lt_of_le_of_lt kle seg.jlt
+  j := seg.i + k
+  ile := Nat.le_add_right _ _
+  jlt := lt_of_le_of_lt (Nat.add_le_of_le_sub' seg.ile (Nat.le_of_lt_add_one klt)) seg.jlt
 
 -- Split the segment into two pieces and take the second part
-def segment_split_second (seg : TraceSegment) (k : Nat) (_ : seg.i ≤ k) (kle : k ≤ seg.j) : TraceSegment where
+def segment_split_second (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) : TraceSegment where
   n := seg.n
   start := seg.start
   blocked := seg.blocked
-  i := k
+  i := seg.i + k
   j := seg.j
-  ile := kle
+  ile := Nat.add_le_of_le_sub' seg.ile (Nat.le_of_lt_add_one klt)
   jlt := seg.jlt
 
 lemma segment_length_pos (seg : TraceSegment) :
@@ -116,111 +116,100 @@ lemma segment_end_eq_getElem (seg : TraceSegment) :
   apply (Nat.add_sub_cancel' _).symm
   exact seg.ile
 
-lemma segment_split_first_start (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_start (segment_split_first seg k lek kle) = segment_start seg := rfl
+lemma segment_split_first_start (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_start (segment_split_first seg k klt) = segment_start seg := rfl
 
-lemma segment_split_second_end (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_end (segment_split_second seg k lek kle) = segment_end seg := rfl
+lemma segment_split_second_end (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_end (segment_split_second seg k klt) = segment_end seg := rfl
 
-lemma segment_split_overlap (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_end (segment_split_first seg k lek kle) =
-  segment_start (segment_split_second seg k lek kle) := rfl
+lemma segment_split_overlap (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_end (segment_split_first seg k klt) =
+  segment_start (segment_split_second seg k klt) := rfl
 
 -- Get the length of the first half of a split trace
-lemma segment_split_first_length (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_length (segment_split_first seg k lek kle) = k - seg.i + 1 := by
+lemma segment_split_first_length (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_length (segment_split_first seg k klt) = k + 1 := by
   unfold segment_length segment_split_first; simp
 
 -- Get the length of the second half of a split trace
-lemma segment_split_second_length (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_length (segment_split_second seg k lek kle) = seg.j - k + 1 := by
+lemma segment_split_second_length (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_length (segment_split_second seg k klt) = segment_length seg - k := by
   unfold segment_length segment_split_second; simp
+  rw [Nat.sub_add_eq, Nat.sub_add_comm]
+  exact Nat.le_of_lt_add_one klt
 
 -- The length of a segment is one less than the sum of the
 -- lengths of its two parts
-lemma segment_split_length (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
+lemma segment_split_length (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
   segment_length seg =
-  (segment_length (segment_split_first seg k lek kle)) +
-  (segment_length (segment_split_second seg k lek kle)) - 1 := by
-  rw [segment_split_first_length, segment_split_second_length, segment_length]; simp
-  rw [add_comm _ (seg.j - k), ← add_assoc, ← Nat.add_sub_assoc lek]
-  rw [Nat.sub_add_cancel kle]
+  (segment_length (segment_split_first seg k klt)) +
+  (segment_length (segment_split_second seg k klt)) - 1 := by
+  rw [segment_split_first_length, segment_split_second_length]; simp
+  exact (Nat.add_sub_cancel' (le_of_lt klt)).symm
 
 -- Get an element from the first half of a split trace segment
 lemma segment_split_first_states_getElem
-  (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  ∀ a (alt : a < (segment_states (segment_split_first seg k lek kle)).length),
-  (segment_states (segment_split_first seg k lek kle))[a] =
+  (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  ∀ a (alt : a < (segment_states (segment_split_first seg k klt)).length),
+  (segment_states (segment_split_first seg k klt))[a] =
   (segment_states seg)[a]'(by
     rw [segment_states_length, segment_split_first_length] at alt
-    rw [segment_states_length, segment_length]
-    exact lt_of_lt_of_le alt ((Nat.add_le_add_right (Nat.sub_le_sub_right kle _)) _)
+    rw [segment_states_length]
+    exact lt_of_le_of_lt (Nat.le_of_lt_add_one alt) klt
   ) := by
   intro _ _
   unfold segment_states segment_split_first segment_trace; simp
 
 -- Get an element from the second half of a split trace segment
 lemma segment_split_second_states_getElem
-  (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  ∀ a (alt : a < (segment_states (segment_split_second seg k lek kle)).length),
-  (segment_states (segment_split_second seg k lek kle))[a] =
-  (segment_states seg)[a + k - seg.i]'(by
+  (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  ∀ a (alt : a < (segment_states (segment_split_second seg k klt)).length),
+  (segment_states (segment_split_second seg k klt))[a] =
+  (segment_states seg)[a + k]'(by
     rw [segment_states_length, segment_split_second_length] at alt
-    rw [segment_states_length, segment_length]
-    apply Nat.sub_lt_right_of_lt_add (le_trans lek (Nat.le_add_left _ _))
-    rw [add_right_comm, Nat.sub_add_cancel]; swap
-    · exact le_trans lek kle
-    apply Nat.add_lt_of_lt_sub
-    rwa [Nat.sub_add_comm]
-    exact kle
-  ) := by
+    rw [segment_states_length]
+    exact Nat.add_lt_of_lt_sub alt) := by
   intro a alt
   unfold segment_states segment_split_second segment_trace; simp; congr 1
-  rw [add_comm, add_comm seg.i, Nat.sub_add_cancel]
-  exact le_trans lek (Nat.le_add_left _ _)
+  rw [add_comm a, add_assoc]
 
 -- Prove an identity for the states of the first half of a split segment
-lemma segment_split_first_states (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_states (segment_split_first seg k lek kle) =
-  List.take (k - seg.i + 1) (segment_states seg) := by
+lemma segment_split_first_states (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_states (segment_split_first seg k klt) =
+  List.take (k + 1) (segment_states seg) := by
   apply List.ext_getElem
   · rw [segment_states_length, segment_split_first_length]
     rw [List.length_take_of_le]
-    rw [segment_states_length, segment_length]
-    exact Nat.add_le_add_right (Nat.sub_le_sub_right kle _) _
+    rw [segment_states_length]
+    exact Nat.add_one_le_of_lt klt
   intro a alt alt'
   rw [segment_split_first_states_getElem, List.getElem_take]
 
 -- Prove an identity for the states of the second half of a split segment
-lemma segment_split_second_states (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
-  segment_states (segment_split_second seg k lek kle) =
-  List.drop (k - seg.i) (segment_states seg) := by
+lemma segment_split_second_states (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
+  segment_states (segment_split_second seg k klt) =
+  List.drop k (segment_states seg) := by
   apply List.ext_getElem
   · rw [segment_states_length, segment_split_second_length, List.length_drop]
-    rw [segment_states_length, segment_length]
-    rw [Nat.sub_sub_right _ lek, add_right_comm _ 1]
-    rw [Nat.sub_add_cancel (le_trans lek kle)]
-    rw [Nat.sub_add_comm]
-    exact kle
+    rw [segment_states_length]
   intro a alt _
-  rw [segment_split_second_states_getElem, List.getElem_drop]; congr
-  rw [add_comm (k - seg.i), Nat.add_sub_assoc]
-  exact lek
+  rw [segment_split_second_states_getElem, List.getElem_drop]; congr 1
+  exact add_comm _ _
 
 -- The list of states for a split segment is equal to those
 -- in the first part followed by the tail of those in the second
-lemma segment_split_states (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (kle : k ≤ seg.j) :
+lemma segment_split_states (seg : TraceSegment) (k : Nat) (klt : k < segment_length seg) :
   segment_states seg =
-  segment_states (segment_split_first seg k lek kle) ++
-  (segment_states (segment_split_second seg k lek kle)).tail := by
+  segment_states (segment_split_first seg k klt) ++
+  (segment_states (segment_split_second seg k klt)).tail := by
   apply List.ext_getElem
   · rw [List.length_append, List.length_tail, ← Nat.add_sub_assoc]; swap
-    · rw [segment_states_length]
-      unfold segment_length segment_split_second; simp
+    · rw [segment_states_length, segment_split_second_length]
+      exact Nat.le_sub_of_add_le' (Nat.add_one_le_of_lt klt)
     repeat rw [segment_states_length]
-    exact segment_split_length seg k lek kle
+    exact segment_split_length seg k klt
   intro a alt _
-  by_cases alt' : a < (segment_states (segment_split_first seg k lek kle)).length
+  by_cases alt' : a < (segment_states (segment_split_first seg k klt)).length
   · rw [List.getElem_append_left alt']
     rw [segment_split_first_states_getElem]
   · rename' alt' => lea; push_neg at lea
@@ -228,10 +217,7 @@ lemma segment_split_states (seg : TraceSegment) (k : Nat) (lek : seg.i ≤ k) (k
     rw [segment_split_second_states_getElem]
     congr
     rw [segment_states_length, segment_split_first_length]
-    rw [add_assoc, Nat.add_sub_assoc, add_comm 1]; swap
-    · rw [add_comm]
-      exact le_of_lt (lt_of_le_of_lt lek (Nat.lt_add_one _))
-    rw [Nat.sub_add_comm lek, Nat.sub_add_cancel]
+    rw [add_assoc, Nat.add_comm 1, Nat.sub_add_cancel]
     rwa [segment_states_length, segment_split_first_length] at lea
 
 -- Check if the 'move' between state 'a' and state 'a+1' is 'f'
@@ -254,16 +240,16 @@ def segment_starts_with_turn_right (seg : TraceSegment) (h : 1 < segment_length 
 -- A split segment starts with a particular move if the original segment did
 def segment_split_first_starts_with_move (seg : TraceSegment) (h : 1 < segment_length seg)
   (f : RunState → RunState) (hmove : check_for_move seg f 0 h) :
-  ∀ k (ltk : seg.i < k) (kle : k ≤ seg.j),
-  check_for_move (segment_split_first seg k (le_of_lt ltk) kle) f 0
+  ∀ k (kpos : 0 < k) (klt : k < segment_length seg),
+  check_for_move (segment_split_first seg k klt) f 0
   (by
     rw [segment_split_first_length]
-    exact Nat.add_one_lt_add_one_iff.mpr (Nat.sub_pos_of_lt ltk)
+    exact Nat.add_one_lt_add_one_iff.mpr kpos
   ) := by
-  intro k ltk kle
-  have lek : seg.i ≤ k := le_of_lt ltk
+  intro k kpos klt
+  ---have lek : seg.i ≤ k := le_of_lt ltk
   unfold check_for_move at *
-  repeat rw [getElem_congr_coll (segment_split_first_states seg k lek kle)]
+  repeat rw [getElem_congr_coll (segment_split_first_states seg k klt)]
   rwa [List.getElem_take, List.getElem_take]
 
 -- The segment begins with a left turn and continues straight
@@ -276,13 +262,11 @@ def segment_is_L (seg : TraceSegment) (h : 1 < segment_length seg) : Prop :=
 def segment_is_U (seg : TraceSegment) (h : 2 < segment_length seg) : Prop :=
   (fun segL sllb ↦ segment_is_L segL sllb ∧
   segment_end seg = turn_left (segment_end segL))
-  (segment_split_first seg (seg.j - 1) (by
-    apply Nat.le_sub_one_of_lt (Nat.lt_of_sub_pos _)
-    exact Nat.add_one_lt_add_one_iff.mp (lt_trans (by norm_num) h)) (Nat.sub_le _ _))
+  (segment_split_first seg (segment_length seg - 2)
+    (Nat.sub_lt (Nat.zero_lt_of_lt h) (Nat.two_pos)))
   (by
-    rw [segment_split_first_length, Nat.sub_right_comm]
-    rw [← Nat.sub_add_comm (Nat.add_one_le_add_one_iff.mp (le_of_lt h))]
-    exact Nat.lt_sub_of_add_lt h)
+    rw [segment_split_first_length]
+    exact Nat.add_one_lt_add_one_iff.mpr (Nat.lt_sub_of_add_lt ((Nat.zero_add 2) ▸ h)))
 
 -- Write the end of an 'L' segment in terms of the start
 lemma segment_end_of_L (seg : TraceSegment) (h : 1 < segment_length seg) :
@@ -316,114 +300,73 @@ lemma segment_end_of_L (seg : TraceSegment) (h : 1 < segment_length seg) :
   have sllb : 2 < segment_length seg := by
     apply lt_of_le_of_ne _ hslne2.symm
     exact Nat.add_one_le_of_lt h
-  have iltj : seg.i < seg.j :=
-    Nat.lt_of_sub_pos (Nat.add_one_lt_add_one_iff.mp h)
-  have jpos : 0 < seg.j :=
-    Nat.zero_lt_of_lt iltj
-  let k := seg.j - 1
-  have ltk : seg.i < k := by
-    apply Nat.add_one_lt_add_one_iff.mp
-    rw [Nat.sub_one_add_one (Nat.ne_zero_of_lt jpos), add_comm]
-    apply Nat.add_lt_of_lt_sub
-    exact Nat.add_one_le_add_one_iff.mp sllb
-  have lek : seg.i ≤ k := le_of_lt ltk
-  have kle : k ≤ seg.j :=
-    Nat.sub_le _ _
+  have s2a1 {n : Nat} (onelt : 1 < n) : n - 2 + 1 = n - 1 := by
+    rw [← one_add_one_eq_two, Nat.sub_add_eq]
+    rw [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt onelt)]
+  let k := segment_length seg - 2
+  have klt : k < segment_length seg :=
+    Nat.sub_lt (Nat.zero_lt_of_lt h) Nat.two_pos
+  have kpos : 0 < k := Nat.sub_pos_of_lt sllb
   -- Split the segment into an L segment, and a single forward step
-  let seg_first := segment_split_first seg k lek kle
+  let seg_first := segment_split_first seg k klt
   have hsflb : 1 < segment_length seg_first := by
     rw [segment_split_first_length]
-    rw [Nat.sub_right_comm, Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt iltj)]
-    exact Nat.add_one_lt_add_one_iff.mp sllb
+    exact Nat.add_one_lt_add_one_iff.mpr kpos
+  have kslt : k + 1 < segment_length seg := by
+    unfold k
+    rw [s2a1 h]
+    exact Nat.sub_lt (Nat.zero_lt_of_lt h) Nat.one_pos
   have hsfL : segment_is_L seg_first hsflb := by
     constructor
-    · exact segment_split_first_starts_with_move seg h turn_left hL k ltk kle
+    · exact segment_split_first_starts_with_move seg h turn_left hL k kpos klt
     · intro a aslt anz
       unfold check_for_move
-      repeat rw [getElem_congr_coll (segment_split_first_states seg k lek kle)]
+      repeat rw [getElem_congr_coll (segment_split_first_states seg k klt)]
       rw [List.getElem_take, List.getElem_take]
       apply hMF a _ anz
       apply lt_trans aslt
-      rw [segment_split_first_length, segment_length]
-      rw [Nat.sub_right_comm]
-      apply Nat.add_one_lt_add_one_iff.mpr
-      exact Nat.sub_one_lt (Nat.sub_ne_zero_of_lt iltj)
+      rwa [segment_split_first_length]
   -- Recursively write the end of 'first_seg' in terms of 'segment_start'
   have hend₀ := segment_end_of_L seg_first hsflb hsfL
   -- Write the end of the segment in terms of the end of 'first_seg'
   have hend₁ : segment_end seg = move_forward (segment_end seg_first) := by
     rw [segment_end_eq_getElem, segment_end_eq_getElem]
     rw [segment_split_first_states_getElem]
-    have sfl := congrArg (fun n ↦ n - 1) (segment_split_first_length seg k lek kle); simp at sfl
-    rw [getElem_congr_idx sfl]
-    unfold segment_length
-    rw [getElem_congr_idx (Nat.add_one_sub_one _)]
-    have s2a1 (n : Nat) (onelt : 1 < n) : n - 2 + 1 = n - 1 := by
-      rw [← one_add_one_eq_two, Nat.sub_add_eq]
-      rw [Nat.sub_one_add_one]
-      exact Nat.sub_ne_zero_of_lt onelt
-    have hlt : segment_length seg - 2 + 1 < segment_length seg := by
-      rw [s2a1 _ h]
-      exact Nat.sub_one_lt (Nat.ne_zero_of_lt h)
-    have := hMF (segment_length seg - 2) hlt (Nat.sub_ne_zero_of_lt sllb)
-    unfold check_for_move at this
+    have := hMF k kslt (Nat.ne_zero_of_lt kpos)
     convert this.symm using 2
-    · unfold segment_length
-      rw [s2a1, Nat.add_one_sub_one]
-      apply Nat.add_one_lt_add_one_iff.mpr
-      exact Nat.sub_pos_of_lt iltj
+    · exact Nat.eq_add_of_sub_eq (Nat.le_sub_one_of_lt h) rfl
     · congr 1
-      unfold segment_length k
-      rw [Nat.sub_right_comm]
-      apply Nat.add_one_inj.mp
-      rw [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt iltj)]
-      rw [s2a1, Nat.add_one_sub_one]
-      apply Nat.add_one_lt_add_one_iff.mpr
-      exact Nat.sub_pos_of_lt iltj
+      rw [segment_split_first_length]; simp
   rw [hend₁, hend₀, segment_split_first_start, segment_split_first_length]
   unfold move_forward rotate_left k
-  apply RunState.ext
-  · simp
-    rw [add_right_comm _ (segment_start seg).x]
+  apply RunState.ext <;> simp
+  · rw [add_right_comm _ (segment_start seg).x]
     apply (Int.add_left_inj _).mpr
     rw [add_right_comm]
     apply (Int.add_left_inj _).mpr
     rw [← Int.neg_add]
     nth_rw 2 [← one_mul (segment_start seg).u.y]
     rw [← Int.add_mul]; congr
-    rw [Nat.sub_right_comm]
-    rw [← Nat.add_one_sub_one (seg.j - seg.i)]
-    rw [Int.ofNat_sub]; swap
-    · rw [Nat.add_one_sub_one]
-      apply Nat.add_one_le_of_lt
-      exact Nat.sub_pos_of_lt iltj
-    rw [Int.ofNat_sub]; swap
-    · exact Nat.add_one_le_add_one_iff.mpr (Nat.zero_le _)
-    rw [Int.ofNat_one, Int.sub_add_cancel]
-    rfl
-  · simp
-    rw [add_right_comm _ (segment_start seg).y]
+    rw [← Int.natCast_one, ← Int.natCast_add]
+    rw [s2a1 h, Int.natCast_sub]
+    exact le_of_lt h
+  · rw [add_right_comm _ (segment_start seg).y]
     apply (Int.add_left_inj _).mpr
     rw [add_right_comm]
     apply (Int.add_left_inj _).mpr
     nth_rw 2 [← one_mul (segment_start seg).u.x]
     rw [← Int.add_mul]; congr
-    rw [Nat.sub_right_comm]
-    rw [← Nat.add_one_sub_one (seg.j - seg.i)]
-    rw [Int.ofNat_sub]; swap
-    · rw [Nat.add_one_sub_one]
-      apply Nat.add_one_le_of_lt
-      exact Nat.sub_pos_of_lt iltj
-    rw [Int.ofNat_sub]; swap
-    · exact Nat.add_one_le_add_one_iff.mpr (Nat.zero_le _)
-    rw [Int.ofNat_one, Int.sub_add_cancel]
-    rfl
-  · simp
+    rw [← Int.natCast_one, ← Int.natCast_add]
+    rw [s2a1 h, Int.natCast_sub]
+    exact le_of_lt h
 termination_by (segment_length seg)
 decreasing_by
-  rw [segment_split_first_length, Nat.sub_right_comm]
-  rw [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt iltj)]
-  exact Nat.lt_add_one _
+  -- For some reason Lean isn't giving us the right context here
+  -- so we can't use 's2a1'. Just copy and paste the logic from there.
+  rw [segment_split_first_length]
+  rw [← one_add_one_eq_two, Nat.sub_add_eq]
+  rw [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt h)]
+  exact Nat.sub_lt (Nat.zero_lt_of_lt h) Nat.one_pos
 
 -- Write the end of a 'U' segment in terms of the start
 lemma segment_end_of_U (seg : TraceSegment) (h : 2 < segment_length seg) :
@@ -435,41 +378,33 @@ lemma segment_end_of_U (seg : TraceSegment) (h : 2 < segment_length seg) :
   ) (segment_start seg) (segment_length seg - 1) := by
   unfold segment_is_U
   intro ⟨hL, hlast⟩
-  let k := seg.j - 1
-  have ltk : seg.i < k := by
-    apply Nat.lt_sub_of_add_lt
-    rw [add_comm]
-    exact Nat.add_lt_of_lt_sub (Nat.add_one_lt_add_one_iff.mp h)
-  have lek := le_of_lt ltk
-  have kle : k ≤ seg.j := Nat.sub_le _ _
-  let seg_first := segment_split_first seg (seg.j - 1) lek kle
+  let k := segment_length seg - 2
+  have klt : k < segment_length seg :=
+    Nat.sub_lt (Nat.zero_lt_of_lt h) Nat.two_pos
+  have kpos : 0 < k := Nat.sub_pos_of_lt h
+  have ks : k + 1 = segment_length seg - 1 := by
+    unfold k
+    rw [← one_add_one_eq_two, Nat.sub_add_eq, Nat.sub_one_add_one]
+    exact Nat.sub_ne_zero_of_lt (lt_trans (by norm_num) h)
+  let seg_first := segment_split_first seg k klt
   have slssf : 1 < segment_length seg_first := by
     rw [segment_split_first_length]
-    exact Nat.add_one_lt_add_one_iff.mpr (Nat.sub_pos_of_lt ltk)
+    exact Nat.add_one_lt_add_one_iff.mpr kpos
+  have lesl : 1 ≤ segment_length seg := le_of_lt (lt_trans (by norm_num) h)
   rw [hlast, segment_end_of_L _ slssf hL, segment_split_first_start]
   rw [segment_split_first_length]
   unfold turn_left rotate_left
-  -- Miscellaneous bounds checks we'll need below
-  have hle₀ := Nat.add_one_le_add_one_iff.mp (le_of_lt h)
-  have hle₁ : 1 ≤ seg.j - seg.i + 1 :=
-    le_of_lt (lt_trans (by norm_num) h)
   apply RunState.ext <;> simp
   · rw [add_right_comm, add_right_comm _ _ (-(segment_start seg).u.y)]
     rw [mul_comm, ← Int.neg_mul]
     nth_rw 2 [← Int.mul_one (-(segment_start seg).u.y)]
     rw [← mul_add, neg_mul, mul_comm, add_right_comm]
     rw [Int.add_sub_cancel, add_comm]; congr
-    rw [← Int.natCast_one, ← Int.natCast_add, Nat.sub_right_comm]
-    rw [← Nat.sub_add_comm hle₀]
-    rw [Int.natCast_sub hle₁]
-    rfl
+    rwa [← Int.natCast_one, ← Int.natCast_add, ks, Int.natCast_sub]
   · repeat rw [add_right_comm _ _ (segment_start seg).u.x]
     nth_rw 2 [← Int.one_mul (segment_start seg).u.x]
     rw [← add_mul, add_right_comm, add_neg_cancel_right, add_comm]; congr
-    rw [← Int.natCast_one, ← Int.natCast_add, Nat.sub_right_comm]
-    rw [← Nat.sub_add_comm hle₀]
-    rw [Int.natCast_sub hle₁]
-    rfl
+    rwa [← Int.natCast_one, ← Int.natCast_add, ks, Int.natCast_sub]
 
 def segment_length_lb_prop (seg : TraceSegment) : Prop :=
   manhattan (loc (segment_start seg)) (loc (segment_end seg)) ≤ segment_length seg
@@ -490,43 +425,26 @@ lemma segment_length_lb_case1 (seg : TraceSegment) (h : segment_length seg = 1) 
 -- the segment begins with a 'move forward'
 lemma segment_length_lb_case2 (seg : TraceSegment) (h : 1 < segment_length seg) :
   segment_starts_with_move_forward seg h →
-  segment_length_lb_prop (segment_split_second seg (seg.i + 1) (Nat.le_add_right _ _)
-    (Nat.add_one_le_of_lt (Nat.lt_of_sub_pos (Nat.pos_of_lt_add_left h)))) →
+  segment_length_lb_prop (segment_split_second seg 1 h) →
   segment_length_lb_prop seg := by
   unfold segment_length_lb_prop
-  intro hmf hllb
-  let k := seg.i + 1
-  have lek : seg.i ≤ k := Nat.le_add_right _ _
-  have kle : k ≤ seg.j :=
-    Nat.add_one_le_of_lt (Nat.lt_of_sub_pos (Nat.pos_of_lt_add_left h))
-  rw [segment_split_length seg k lek kle]
-  rw [segment_split_first_length]
-  rw [Nat.sub_add_comm (Nat.le_refl seg.i), Nat.sub_self, zero_add]
-  rw [add_right_comm, Nat.add_one_sub_one, add_comm]
-  let seg_first := segment_split_first seg k lek kle
-  let seg_second := segment_split_second seg k lek kle
-  apply le_trans (manhattan_tri _ _ _)
-  change manhattan _ (loc (segment_start seg_second)) + _ ≤ _
-  rw [← segment_split_first_start seg k lek kle]
-  rw [← segment_split_second_end seg k lek kle]
-  nth_rw 1 [← segment_split_overlap]
-  rw [add_comm]
-  convert Nat.add_le_add_right hllb 1
-  unfold segment_starts_with_move_forward check_for_move at hmf
-  rw [← segment_start_eq_getElem_zero, getElem_congr_idx (Nat.zero_add _)] at hmf
-  rw [← segment_split_first_start seg k lek kle] at hmf
-  have : segment_end seg_first = (segment_states seg)[1]'(by rwa [segment_states_length]) := by
-    rw [segment_end_eq_getElem, getElem_congr_coll (segment_split_first_states _ _ _ _)]
-    rw [List.getElem_take]; congr
-    rw [segment_split_first_length, Nat.add_one_sub_one]
-    unfold k
-    rw [add_comm, Nat.add_sub_cancel]
-  rw [← this] at hmf
-  rw [← hmf]
-  let s := segment_start seg_first
-  change manhattan (loc s) (loc (move_forward s)) = 1
-  unfold manhattan move_forward loc; simp
-  exact uvec_xabs_add_yabs_eq_one _
+  let seg_first := segment_split_first seg 1 h
+  let seg_second := segment_split_second seg 1 h
+  intro hmf hman₁
+  have ltsl : 1 < (segment_states seg).length := by rwa [segment_states_length]
+  have hman₀ : manhattan (loc (segment_start seg)) (loc ((segment_states seg)[1]'ltsl)) = 1 := by
+    unfold segment_starts_with_move_forward check_for_move at hmf
+    rw [getElem_congr_idx (Nat.zero_add 1)] at hmf
+    rw [← hmf, ← segment_start_eq_getElem_zero, manhattan]
+    unfold loc move_forward; simp
+    exact uvec_xabs_add_yabs_eq_one _
+  rw [← segment_split_overlap, segment_end_eq_getElem] at hman₁
+  rw [segment_split_first_states_getElem, segment_split_second_end] at hman₁
+  have idxrw := congrArg (fun n ↦ n - 1) (segment_split_first_length seg 1 h)
+  dsimp at idxrw
+  rw [getElem_congr_idx idxrw, segment_split_second_length] at hman₁
+  convert le_trans (manhattan_tri _ _ _) (Nat.add_le_add (le_of_eq hman₀) hman₁)
+  rw [add_comm, Nat.sub_one_add_one (Nat.ne_zero_of_lt h)]
 
 -- Prove the segment length lower bound for 'L segments
 lemma segment_length_lb_case3 (seg : TraceSegment) (h : 1 < segment_length seg) :
