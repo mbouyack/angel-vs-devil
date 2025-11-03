@@ -96,6 +96,20 @@ lemma segment_states_length (seg : TraceSegment) :
   apply Nat.add_one_le_of_lt (Nat.sub_lt_sub_right seg.ile _)
   apply (trace_length _ _ _) ▸ seg.jlt
 
+-- Ideally we should avoid referencing the underlying trace,
+-- but it is required for some proofs.
+lemma segment_states_getElem (seg : TraceSegment)
+  (i : Nat) (ilt : i < (segment_states seg).length) :
+  (segment_states seg)[i]'ilt = (segment_trace seg)[seg.i + i]'(by
+    rw [segment_trace]
+    rw [segment_states_length] at ilt
+    apply lt_of_le_of_lt _ seg.jlt
+    apply Nat.add_le_of_le_sub' seg.ile
+    exact Nat.le_of_lt_add_one ilt
+  ) := by
+  unfold segment_states
+  rw [List.getElem_take, List.getElem_drop]
+
 lemma segment_start_eq_getElem_zero (seg : TraceSegment) :
   segment_start seg = (segment_states seg)[0]'(by
     rw [segment_states_length, segment_length]
@@ -221,7 +235,7 @@ lemma segment_split_states (seg : TraceSegment) (k : Nat) (klt : k < segment_len
     rwa [segment_states_length, segment_split_first_length] at lea
 
 -- Check if the 'move' between state 'a' and state 'a+1' is 'f'
-def check_for_move (seg : TraceSegment)
+abbrev check_for_move (seg : TraceSegment)
   (f : RunState → RunState) (a : Nat) (alt : a + 1 < segment_length seg) : Prop :=
   f ((segment_states seg)[a]'(by
     rw [segment_states_length]
@@ -237,6 +251,49 @@ def segment_starts_with_turn_left (seg : TraceSegment) (h : 1 < segment_length s
 def segment_starts_with_turn_right (seg : TraceSegment) (h : 1 < segment_length seg) : Prop :=
   check_for_move seg turn_right 0 h
 
+-- Every step in the segment is one of three options
+lemma segment_move_options (seg : TraceSegment) (a : Nat) (alt : a + 1 < segment_length seg) :
+  check_for_move seg move_forward a alt ∨
+  check_for_move seg turn_right a alt ∨
+  check_for_move seg turn_left a alt := by
+  unfold check_for_move
+  repeat rw [segment_states_getElem]
+  unfold segment_trace
+    -- Prove the bound needed for the trace recurrence
+  have idxlt : seg.i + a + 1 < seg.n := by
+    apply lt_of_le_of_lt _ ((trace_length _ _ _) ▸ seg.jlt)
+    apply Nat.add_le_of_le_sub' seg.ile (Nat.le_of_lt_add_one alt)
+  have := trace_getElem_recurrence seg.n seg.start seg.blocked (seg.i + a) idxlt
+  unfold next_step at this
+  split_ifs at this with h₀ h₁
+  · right; left
+    convert this.symm using 2
+  · left
+    convert this.symm using 2
+  · right; right
+    convert this.symm using 2
+
+-- If a move is not a turn, then it is a forward step
+lemma segment_move_forward_of_not_turn (seg : TraceSegment) (a : Nat) (alt : a + 1 < segment_length seg) :
+  ¬check_for_move seg turn_left a alt ∧ ¬check_for_move seg turn_right a alt →
+  check_for_move seg move_forward a alt := by
+  intro h
+  rcases segment_move_options seg a alt with lhs | rhs
+  · assumption
+  · absurd rhs; push_neg
+    exact h.symm
+
+-- The moves in a split segment match the original
+lemma segment_split_first_move_iff (seg : TraceSegment) (f : RunState → RunState)
+  (a k : Nat) (klt : k < segment_length seg) (alt : a < k) :
+  check_for_move seg f a (by omega) ↔
+  check_for_move (segment_split_first seg k klt) f a (by
+    rw [segment_split_first_length]
+    exact Nat.add_one_lt_add_one_iff.mpr alt
+  ) := by
+  unfold check_for_move
+  repeat rw [segment_split_first_states_getElem]
+
 -- A split segment starts with a particular move if the original segment did
 def segment_split_first_starts_with_move (seg : TraceSegment) (h : 1 < segment_length seg)
   (f : RunState → RunState) (hmove : check_for_move seg f 0 h) :
@@ -247,10 +304,8 @@ def segment_split_first_starts_with_move (seg : TraceSegment) (h : 1 < segment_l
     exact Nat.add_one_lt_add_one_iff.mpr kpos
   ) := by
   intro k kpos klt
-  ---have lek : seg.i ≤ k := le_of_lt ltk
-  unfold check_for_move at *
-  repeat rw [getElem_congr_coll (segment_split_first_states seg k klt)]
-  rwa [List.getElem_take, List.getElem_take]
+  rwa [← segment_split_first_move_iff]
+  assumption
 
 -- The segment begins with a left turn and continues straight
 def segment_is_L (seg : TraceSegment) (h : 1 < segment_length seg) : Prop :=
@@ -601,3 +656,148 @@ lemma segment_length_lb_case6 (seg : TraceSegment)
   rcases Finset.mem_insert.mp hrest with hleft | hright
   · rw [hleft]; unfold uvec_left; simp; omega
   · rw [Finset.mem_singleton.mp hright]; unfold uvec_right; simp; omega
+
+-- Prove that the length of a trace segment is bounded below by
+-- the manhattan distance from its starting point to its end point.
+lemma segment_length_lb (seg : TraceSegment) :
+manhattan (loc (segment_start seg)) (loc (segment_end seg)) ≤ segment_length seg := by
+  -- To make sure we only have to prove termination for a
+  -- single case, recurse here for 0 < k
+  have hrecurse (k : Nat) (kpos : 0 < k) (klt : k < segment_length seg) :
+    segment_length_lb_prop (segment_split_second seg k klt) :=
+    segment_length_lb _
+  -- Case #1
+  -- Segment has length = 1
+  by_cases h₁ : segment_length seg = 1
+  · exact segment_length_lb_case1 seg h₁
+  push_neg at h₁
+  have ltsl : 1 < segment_length seg :=
+    lt_of_le_of_ne (Nat.one_le_of_lt (segment_length_pos seg)) h₁.symm
+  -- There are three possible options for the first step:
+  rcases segment_move_options seg 0 ltsl with h₂ | h₃ | hleft
+  · -- Case #2
+    -- Segment begins with a forward step
+    exact segment_length_lb_case2 seg ltsl h₂ (hrecurse 1 (by norm_num) ltsl)
+  · -- Case #3
+    -- Segment begins with a right turn
+    exact segment_length_lb_case3 seg ltsl h₃ (hrecurse 1 (by norm_num) ltsl)
+  -- Define a function to help find the next turn
+  let is_turn := fun (i : Fin ((segment_states seg).length - 2)) ↦
+    (fun ilt ↦
+      check_for_move seg turn_left (i.val + 1) ilt ∨
+      check_for_move seg turn_right (i.val + 1) ilt
+    ) (by
+      rw [add_assoc, one_add_one_eq_two, ← segment_states_length]
+      exact Nat.add_lt_of_lt_sub i.2
+    )
+  by_cases h₄ : ∀ a, ¬is_turn a
+  · -- Case #4
+    -- The segment is an L-segment
+    apply segment_length_lb_case4 seg ltsl
+    use hleft
+    intro a aslt anz
+    have leas : 2 ≤ a + 1 := by
+      apply Nat.add_one_le_of_lt
+      exact Nat.add_one_lt_add_one_iff.mpr (Nat.pos_of_ne_zero anz)
+    let a' : Fin ((segment_states seg).length - 2) := ⟨a - 1, by
+      rw [segment_states_length]
+      apply lt_of_eq_of_lt _ (Nat.sub_lt_sub_right leas aslt)
+      rw [← one_add_one_eq_two, Nat.sub_add_eq]; simp
+    ⟩
+    have := h₄ a'
+    unfold is_turn a' at this
+    simp at this
+    have apslt : a - 1 + 1 < segment_length seg := by
+      rw [Nat.sub_one_add_one anz]
+      exact lt_trans (Nat.lt_add_one _) aslt
+    have apsslt : a - 1 + 1 + 1 < segment_length seg := by
+      rwa [Nat.sub_one_add_one anz]
+    have hoptions := segment_move_options seg (a - 1 + 1) apsslt
+    apply Or.elim3 hoptions _ (fun h ↦ False.elim (this.2 h)) (fun h ↦ False.elim (this.1 h))
+    intro h
+    convert h
+    rw [Nat.sub_one_add_one anz]
+  push_neg at h₄
+  have slppnz : (segment_states seg).length - 2 ≠ 0 := by
+    rcases h₄ with ⟨a, ha⟩
+    exact Nat.ne_zero_of_lt a.2
+  -- Now that we know the second turn exists, use 'find_first' to find it
+  let a : Nat := find_first is_turn slppnz
+  have alt : a < (segment_states seg).length - 2 := Fin.prop _
+  have ha : is_turn ⟨a, alt⟩ := find_first_is_sat is_turn h₄
+  unfold is_turn at ha; simp at ha
+  -- Prove the turn at 'a+1' is in-fact second
+  have hsecond : ∀ b (blt : b < a), ¬is_turn ⟨b, lt_trans blt alt⟩ := by
+    intro b blt hb
+    have blt' := lt_trans blt alt
+    absurd Fin.le_iff_val_le_val.mp (find_first_is_first is_turn ⟨b, blt'⟩ hb); simp
+    exact blt
+  -- Split off the first segment twice so we can prove seg starts with an 'L-segment'
+  have asslt : a + 2 < segment_length seg := by
+    apply Nat.add_lt_of_lt_sub
+    rwa [segment_states_length] at alt
+  let seg_first := segment_split_first seg (a + 2) asslt
+  have sl1 : segment_length seg_first = a + 3 := by
+    rw [segment_split_first_length]
+  let seg_first' := segment_split_first seg_first (segment_length seg_first - 2) (
+    Nat.sub_lt (by rw [segment_split_first_length]; simp) (by norm_num))
+  have sl1' : segment_length seg_first' = a + 2 := by
+    rw [segment_split_first_length, sl1]; simp
+  -- Prove that seg_first' is an L-segment
+  -- This result will be used for both case #5 and case #6
+  have hL : segment_is_L seg_first' (by omega) := by
+    constructor
+    · -- Prove that seg_first' starts with a left turn
+      apply segment_split_first_starts_with_move seg ltsl _ hleft
+      · rw [segment_split_first_length]; simp
+      · rw [segment_split_first_length]; simp
+        exact lt_trans (Nat.lt_add_one _) asslt
+    · -- Prove that all other steps in seg_first' are forward
+      intro b bslt bnz
+      -- Prepare all the bounds checks first
+      rw [sl1'] at bslt
+      have blt : b < segment_length seg_first - 2 := by
+        rw [sl1]; simp
+        exact Nat.add_one_lt_add_one_iff.mp bslt
+      have blt' : b < a + 2 :=
+        lt_trans (Nat.lt_add_one _) bslt
+      have bplt : b - 1 < a := by
+        apply Nat.add_one_lt_add_one_iff.mp
+        rw [Nat.sub_one_add_one bnz]
+        exact Nat.add_one_lt_add_one_iff.mp bslt
+      rw [← segment_split_first_move_iff]; swap
+      · assumption
+      apply segment_move_forward_of_not_turn
+      by_contra h
+      rw [← or_iff_not_and_not] at h
+      absurd hsecond (b - 1) bplt
+      unfold is_turn; simp
+      repeat rw [← segment_split_first_move_iff _ _ _ _ _ blt'] at h
+      convert h
+      · exact Nat.sub_one_add_one bnz
+      · exact Nat.sub_one_add_one bnz
+  rcases ha with h₅ | h₆
+  · -- Case #5
+    -- The segment is a U-segment
+    apply segment_length_lb_case5 seg (a + 2) (by omega) asslt _ (hrecurse (a + 2) (by omega) asslt)
+    use hL
+    convert h₅.symm
+    · rw [segment_end_eq_getElem, segment_split_first_states_getElem]; congr
+      rw [sl1]; simp
+    · rw [segment_end_eq_getElem, segment_split_first_states_getElem]
+      rw [segment_split_first_states_getElem]; congr
+      rw [sl1']; simp
+  · -- Case #6
+    -- The segment is an S-segment
+    apply segment_length_lb_case6 seg (a + 2) (by omega) asslt _ (hrecurse (a + 2) (by omega) asslt)
+    use hL
+    convert h₆.symm
+    · rw [segment_end_eq_getElem, segment_split_first_states_getElem]; congr
+      rw [sl1]; simp
+    · rw [segment_end_eq_getElem, segment_split_first_states_getElem]
+      rw [segment_split_first_states_getElem]; congr
+      rw [sl1']; simp
+termination_by (segment_length seg)
+decreasing_by
+  rw [segment_split_second_length]
+  exact Nat.sub_lt (Nat.zero_lt_of_lt klt) kpos
