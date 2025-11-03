@@ -268,6 +268,17 @@ def segment_is_U (seg : TraceSegment) (h : 2 < segment_length seg) : Prop :=
     rw [segment_split_first_length]
     exact Nat.add_one_lt_add_one_iff.mpr (Nat.lt_sub_of_add_lt ((Nat.zero_add 2) ▸ h)))
 
+-- The segment begins with a left turn and ends with a right turn,
+-- with only straight segments in-between
+def segment_is_S (seg : TraceSegment) (h : 2 < segment_length seg) : Prop :=
+  (fun segL sllb ↦ segment_is_L segL sllb ∧
+  segment_end seg = turn_right (segment_end segL))
+  (segment_split_first seg (segment_length seg - 2)
+    (Nat.sub_lt (Nat.zero_lt_of_lt h) (Nat.two_pos)))
+  (by
+    rw [segment_split_first_length]
+    exact Nat.add_one_lt_add_one_iff.mpr (Nat.lt_sub_of_add_lt ((Nat.zero_add 2) ▸ h)))
+
 -- Write the end of an 'L' segment in terms of the start
 lemma segment_end_of_L (seg : TraceSegment) (h : 1 < segment_length seg) :
   segment_is_L seg h → segment_end seg =
@@ -405,6 +416,42 @@ lemma segment_end_of_U (seg : TraceSegment) (h : 2 < segment_length seg) :
     nth_rw 2 [← Int.one_mul (segment_start seg).u.x]
     rw [← add_mul, add_right_comm, add_neg_cancel_right, add_comm]; congr
     rwa [← Int.natCast_one, ← Int.natCast_add, ks, Int.natCast_sub]
+
+-- Write the end of an 'S' segment in terms of the start
+lemma segment_end_of_S (seg : TraceSegment) (h : 2 < segment_length seg) :
+  segment_is_S seg h → segment_end seg =
+  (fun rs n ↦ RunState.mk
+    (rs.x + n * (rotate_left rs.u).x + rs.u.x)
+    (rs.y + n * (rotate_left rs.u).y + rs.u.y)
+    rs.u
+  ) (segment_start seg) (segment_length seg - 2) := by
+  unfold segment_is_S
+  intro ⟨hL, hlast⟩
+  let k := segment_length seg - 2
+  have klt : k < segment_length seg :=
+    Nat.sub_lt (Nat.zero_lt_of_lt h) Nat.two_pos
+  have kpos : 0 < k := Nat.sub_pos_of_lt h
+  have ks : k + 1 = segment_length seg - 1 := by
+    unfold k
+    rw [← one_add_one_eq_two, Nat.sub_add_eq, Nat.sub_one_add_one]
+    exact Nat.sub_ne_zero_of_lt (lt_trans (by norm_num) h)
+  let seg_first := segment_split_first seg k klt
+  have slssf : 1 < segment_length seg_first := by
+    rw [segment_split_first_length]
+    exact Nat.add_one_lt_add_one_iff.mpr kpos
+  have lesl : 1 ≤ segment_length seg := le_of_lt (lt_trans (by norm_num) h)
+  rw [hlast, segment_end_of_L _ slssf hL, segment_split_first_start]
+  rw [segment_split_first_length]
+  unfold turn_right rotate_left
+  apply RunState.ext <;> simp
+  · rw [add_assoc (segment_start seg).x, add_comm]
+    apply (Int.add_right_inj _).mpr ((Int.add_left_inj _).mpr _)
+    unfold k
+    rw [Int.natCast_sub (le_of_lt h)]; simp
+  · rw [add_assoc (segment_start seg).y, add_comm]
+    apply (Int.add_right_inj _).mpr ((Int.add_left_inj _).mpr _)
+    unfold k
+    rw [Int.natCast_sub (le_of_lt h)]; simp
 
 def segment_length_lb_prop (seg : TraceSegment) : Prop :=
   manhattan (loc (segment_start seg)) (loc (segment_end seg)) ≤ segment_length seg
