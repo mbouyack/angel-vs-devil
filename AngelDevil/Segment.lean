@@ -522,31 +522,12 @@ lemma segment_length_lb_case4 (seg : TraceSegment) (h : 1 < segment_length seg) 
   unfold manhattan loc rotate_left
   simp
   rcases Finset.mem_insert.mp (uvec_finset_mem (segment_start seg).u) with hup | hrest
-  · rw [hup]; unfold uvec_up; simp
-    rw [← Int.natAbs_neg]
-    apply Int.le_of_ofNat_le_ofNat
-    rw [Int.natCast_add, Int.natAbs_of_nonneg]; swap
-    · simp; exact le_of_lt h
-    rw [Int.neg_sub, Int.natCast_one, Int.sub_add_cancel]
+  · rw [hup]; unfold uvec_up; simp; omega
   rcases Finset.mem_insert.mp hrest with hdown | hrest
-  · rw [hdown]; unfold uvec_down; simp
-    apply Int.le_of_ofNat_le_ofNat
-    rw [Int.natCast_add, Int.natAbs_of_nonneg]; swap
-    · simp; exact le_of_lt h
-    rw [Int.natCast_one, Int.sub_add_cancel]
+  · rw [hdown]; unfold uvec_down; simp; omega
   rcases Finset.mem_insert.mp hrest with hleft | hright
-  · rw [hleft]; unfold uvec_left; simp
-    apply Int.le_of_ofNat_le_ofNat
-    rw [Int.natCast_add, ← Int.natAbs_neg, Int.natAbs_of_nonneg]; swap
-    · simp; exact le_of_lt h
-    rw [Int.neg_sub, ← Int.add_sub_assoc, add_comm]
-    rw [Int.natCast_one, Int.add_sub_cancel]
-  · rw [Finset.mem_singleton.mp hright]; unfold uvec_right; simp
-    apply Int.le_of_ofNat_le_ofNat
-    rw [Int.natCast_add, Int.natAbs_of_nonneg]; swap
-    · simp; exact le_of_lt h
-    rw [← Int.add_sub_assoc, add_comm]
-    rw [Int.natCast_one, Int.add_sub_cancel]
+  · rw [hleft]; unfold uvec_left; simp; omega
+  · rw [Finset.mem_singleton.mp hright]; unfold uvec_right; simp; omega
 
 -- Prove the induction case for the length lower bound when
 -- the segment begins with a 'U-segment'
@@ -583,3 +564,40 @@ lemma segment_length_lb_case5 (seg : TraceSegment)
   rcases Finset.mem_insert.mp hrest with hleft | hright
   · rw [hleft]; unfold uvec_left; simp
   · rw [Finset.mem_singleton.mp hright]; unfold uvec_right; simp
+
+-- Prove the induction case for the length lower bound when
+-- the segment begins with an 'S-segment'
+lemma segment_length_lb_case6 (seg : TraceSegment)
+  (k : Nat) (ltk : 1 < k) (klt : k < segment_length seg) :
+  segment_is_S (segment_split_first seg k klt) (by
+    rw [segment_split_first_length]
+    exact Nat.add_one_lt_add_one_iff.mpr ltk) →
+  segment_length_lb_prop (segment_split_second seg k klt) →
+  segment_length_lb_prop seg := by
+  intro hS sllb
+  let seg_first := segment_split_first seg k klt
+  let seg_second := segment_split_second seg k klt
+  have ltsl1 : 2 < segment_length seg_first := by
+    rw [segment_split_first_length]
+    exact Nat.add_one_lt_add_one_iff.mpr ltk
+  have lesl1 : 1 ≤ segment_length seg_first := by
+    rw [segment_split_first_length]
+    exact Nat.add_one_le_add_one_iff.mpr (Nat.zero_le _)
+  unfold segment_length_lb_prop at *
+  rw [← segment_split_overlap, segment_split_second_end] at sllb
+  apply le_trans (manhattan_tri _ (loc (segment_end seg_first)) _)
+  rw [segment_split_length seg k klt, Nat.sub_add_comm lesl1]
+  apply Nat.add_le_add _ sllb
+  rw [segment_split_first_length, Nat.add_one_sub_one]
+  rw [segment_end_of_S seg_first ltsl1 hS, segment_split_first_start]
+  rw [segment_split_first_length]
+  unfold manhattan rotate_left loc; simp
+  rw [← one_add_one_eq_two, ← Int.sub_sub, Int.add_sub_cancel]
+  -- Finish the proof for each of the possible starting directions
+  rcases Finset.mem_insert.mp (uvec_finset_mem (segment_start seg).u) with hup | hrest
+  · rw [hup]; unfold uvec_up; simp; omega
+  rcases Finset.mem_insert.mp hrest with hdown | hrest
+  · rw [hdown]; unfold uvec_down; simp; omega
+  rcases Finset.mem_insert.mp hrest with hleft | hright
+  · rw [hleft]; unfold uvec_left; simp; omega
+  · rw [Finset.mem_singleton.mp hright]; unfold uvec_right; simp; omega
