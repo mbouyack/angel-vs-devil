@@ -431,15 +431,10 @@ lemma segment_end_of_S (seg : TraceSegment) (h : 2 < segment_length seg) :
   have klt : k < segment_length seg :=
     Nat.sub_lt (Nat.zero_lt_of_lt h) Nat.two_pos
   have kpos : 0 < k := Nat.sub_pos_of_lt h
-  have ks : k + 1 = segment_length seg - 1 := by
-    unfold k
-    rw [← one_add_one_eq_two, Nat.sub_add_eq, Nat.sub_one_add_one]
-    exact Nat.sub_ne_zero_of_lt (lt_trans (by norm_num) h)
   let seg_first := segment_split_first seg k klt
   have slssf : 1 < segment_length seg_first := by
     rw [segment_split_first_length]
     exact Nat.add_one_lt_add_one_iff.mpr kpos
-  have lesl : 1 ≤ segment_length seg := le_of_lt (lt_trans (by norm_num) h)
   rw [hlast, segment_end_of_L _ slssf hL, segment_split_first_start]
   rw [segment_split_first_length]
   unfold turn_right rotate_left
