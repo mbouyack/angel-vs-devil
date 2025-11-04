@@ -544,3 +544,92 @@ lemma trace_loops_of_valid
   have jlt : j.val < i.val :=
     lt_of_le_of_ne jle (Fin.val_ne_iff.mpr inej).symm
   exact ⟨j, i, jlt, (by rw [trace_length]; exact i.2), edge_of_runner_inj hij.symm⟩
+
+-- Find the length of the longest trace that doesn't repeat
+def perimeter_length
+  (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) : Nat :=
+  (Nat.find (trace_loops_of_valid start blocked hvalid) - 1)
+
+-- The length of the perimeter is positive
+lemma perimeter_length_pos
+  (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) :
+  0 < perimeter_length start blocked hvalid := by
+  let N := Nat.find (trace_loops_of_valid start blocked hvalid)
+  change 0 < N - 1
+  -- If the trace has dupes, it has at least two steps
+  have nlb : ∀ n,
+    list_has_dupes (trace n start blocked) → 1 < n := by
+    intro n hd; unfold list_has_dupes at hd
+    rcases hd with ⟨i, j, ilt, jlt, _⟩
+    rw [trace_length] at jlt
+    exact lt_of_le_of_lt (Nat.one_le_of_lt ilt) jlt
+  -- The trace found by Nat.find will in-fact have a duplicate
+  -- so the length of that trace must be greater than '1'
+  exact Nat.sub_pos_of_lt (nlb _ (Nat.find_spec (trace_loops_of_valid start blocked hvalid)))
+
+-- The trace with length 'perimeter_length' has no duplicates
+lemma trace_perimeter_has_no_dupes
+  (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) :
+  list_nodupes (trace (perimeter_length start blocked hvalid) start blocked) := by
+  let N := Nat.find (trace_loops_of_valid start blocked hvalid)
+  let P := perimeter_length start blocked hvalid
+  have Npos : 0 < N :=
+    lt_of_lt_of_le (perimeter_length_pos start blocked hvalid) (Nat.sub_le _ _)
+  change list_nodupes (trace P start blocked)
+  by_contra hdupe
+  rw [list_not_nodupes] at hdupe
+  absurd Nat.find_min' (trace_loops_of_valid start blocked hvalid) hdupe; push_neg
+  exact Nat.sub_lt Npos Nat.one_pos
+
+-- If you go one step further than the end of the
+-- perimeter trace, you get back to the start
+lemma trace_start_repeats_idx
+  (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) :
+  (trace (perimeter_length start blocked hvalid + 1) start blocked).getLast (by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  ) = start := by
+  let N := Nat.find (trace_loops_of_valid start blocked hvalid)
+  have Npos : 0 < N :=
+    lt_of_lt_of_le (perimeter_length_pos start blocked hvalid) (Nat.sub_le _ _)
+  have Nnz : N ≠ 0 := Nat.ne_zero_of_lt Npos
+  have rw₀ := congrArg (fun (n : Nat) ↦ trace n start blocked) (Nat.sub_one_add_one Nnz); simp at rw₀
+  unfold perimeter_length
+  let T := trace N start blocked
+  have hnnil : T ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [trace_length]
+  rw [List.getLast_congr _ hnnil rw₀]
+  have hdupe : list_has_dupes T :=
+    Nat.find_spec (trace_loops_of_valid start blocked hvalid)
+  have hnd : list_nodupes (trace (N - 1) start blocked) :=
+    trace_perimeter_has_no_dupes start blocked hvalid
+  -- Get the location of the first duplicate in T
+  let j : Nat := find_first_dupe T hnnil
+  have jlt : j < T.length := Fin.prop _
+  have jlt' : j < N := by rwa [trace_length] at jlt
+  rcases first_dupe_is_dupe T hdupe with ⟨i, ilt, hij⟩
+  change i < j at ilt
+  change T[i] = T[j] at hij
+  -- Show that if j ≠ N - 1 we would have a duplicate in the
+  -- perimeter trace, which violates 'trace_perimeter_has_no_dupes'
+  have hjN : j = N - 1 := by
+    by_contra! jneN
+    have jlt' : j < (trace (N - 1) start blocked).length := by
+      rw [trace_length]
+      rw [trace_length] at jlt
+      exact lt_of_le_of_ne (Nat.le_sub_one_of_lt jlt) jneN
+    absurd hnd i j ilt jlt'
+    repeat rw [getElem_congr_coll (trace_take N start blocked (N - 1) (Nat.sub_le _ _))]
+    rwa [List.getElem_take, List.getElem_take]
+  rw [List.getLast_eq_getElem]
+  have hTl : T.length - 1 = j := by
+    rw [trace_length]
+    exact hjN.symm
+  rw [getElem_congr_idx hTl]
+  exact trace_start_is_first_dupe N start blocked hdupe hvalid
