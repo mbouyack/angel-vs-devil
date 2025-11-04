@@ -1,6 +1,7 @@
 import Mathlib.Data.Finset.Basic
 import Mathlib.Data.Finset.Card
 import Mathlib.Data.Finset.Union
+import Mathlib.Data.Fintype.Card
 import AngelDevil.Trace
 import AngelDevil.Region
 import AngelDevil.Unit
@@ -356,6 +357,28 @@ def edge_of_runner (rs : RunState) : Edge where
   _out := loc rs
   hadj := (adjacent_comm _ _).mp (adjacent_left_of_runner rs)
 
+-- If two RunState map to the same edge, they are the same
+lemma edge_of_runner_inj : Function.Injective edge_of_runner := by
+  intro rs₀ rs₁ h
+  have hin := (Edge.ext_iff.mp h).1
+  have hout := (Edge.ext_iff.mp h).2
+  unfold edge_of_runner at *; simp at *
+  have hx : rs₀.x = rs₁.x := (Prod.ext_iff.mp hout).1
+  have hy : rs₀.y = rs₁.y := (Prod.ext_iff.mp hout).2
+  unfold left_of_runner at hin
+  rw [hx, hy] at hin
+  have hux : rs₀.u.x = rs₁.u.x := by
+    apply (Int.add_right_inj rs₁.y).mp
+    exact (Prod.ext_iff.mp hin).2
+  have huy : rs₀.u.y = rs₁.u.y := by
+    apply (Int.add_right_inj rs₁.x).mp
+    apply (Int.sub_left_inj rs₀.u.y).mp
+    rw [Int.add_sub_cancel, add_sub_right_comm]
+    apply (Int.sub_left_inj rs₁.u.y).mp
+    rw [Int.add_sub_cancel]
+    exact (Prod.ext_iff.mp hin).1.symm
+  exact RunState.ext hx hy (UVec.ext hux huy)
+
 -- If a trace has a valid start, each state in the trace corresponds to an edge of
 -- the region of blocked cells. In this context "valid" means the trace does not
 -- begin on a blocked cell but *does* begin with a blocked cell to its left.
@@ -485,3 +508,39 @@ lemma edge_of_runner_mem_region_edges
       unfold move_forward edge_of_runner left_of_runner turn_left loc; dsimp
       rw [add_assoc, add_comm rs'.u.x, ← add_assoc]
     rwa [path_extend_getLast]
+
+-- If the trace has a valid start then it will eventually loop
+/- Note that this is a sligthly different result from
+   'run_path_loops_of_nice_devil_wins' (in Main.lean). That result only
+   applies to a 'RunPath' and relies on the fact that the runner is
+   trapped in the escape square. Meanwhile, this result holds for any
+   valid trace and relies on the mapping from trace steps to region edges. -/
+lemma trace_loops_of_valid
+  (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) :
+  ∃ n, list_has_dupes (trace n start blocked) := by
+  let edges := get_edges (Region blocked (left_of_runner start))
+  let N := edges.card + 1
+  let S := @Finset.univ (Fin N) _
+  use N
+  -- Define a function to map from 'Fin N', to the edge constructed
+  -- from the corresponding step of the trace.
+  let f : Fin N → Edge := fun i ↦ edge_of_runner ((trace N start blocked)[i.val]'(by
+    rw [trace_length]; exact i.2))
+  -- 'S' was constructed to have S.card > edges.card
+  have hcard : edges.card < S.card := by
+    rw [Eq.trans Finset.card_univ (Fintype.card_fin N)]
+    exact Nat.lt_add_one _
+  -- The image of 'f' is in 'edges'
+  have hmaps : Set.MapsTo f S edges := by
+    intro i _
+    exact edge_of_runner_mem_region_edges N start blocked hvalid _ (List.getElem_mem _)
+  -- Apply the pigeonhole principle to find the duplicate
+  rcases Finset.exists_ne_map_eq_of_card_lt_of_maps_to hcard hmaps with ⟨i, _, j, _, inej, hij⟩
+  unfold f at hij
+  by_cases ilt : i.val < j.val
+  · exact ⟨i, j, ilt, (by rw [trace_length]; exact j.2), edge_of_runner_inj hij⟩
+  rename' ilt => jle; push_neg at jle
+  have jlt : j.val < i.val :=
+    lt_of_le_of_ne jle (Fin.val_ne_iff.mpr inej).symm
+  exact ⟨j, i, jlt, (by rw [trace_length]; exact i.2), edge_of_runner_inj hij.symm⟩
