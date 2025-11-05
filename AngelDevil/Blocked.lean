@@ -326,3 +326,72 @@ lemma trace_trim_neg_one_unchanged (n : Nat) (start : RunState) (blocked : List 
       have hleft' : loc (turn_left rs) ∉ blocked' :=
         fun h ↦ False.elim (hleft (hss h))
       rw [if_neg hleft, if_neg hleft']
+
+-- I tried getting List.max? to work, but it was more effort than just writing
+-- out the 18 lines of code below
+def list_int_max (L : List Int) : Int :=
+  match L with
+  | []      => 0
+  | x :: xs => max x (list_int_max xs)
+
+lemma list_int_max_cons (a : Int) (L : List Int) :
+  list_int_max (a :: L) = max a (list_int_max L) := rfl
+
+lemma list_int_le_max (L : List Int) :
+  ∀ a ∈ L, a ≤ list_int_max L :=
+  match L with
+  | []      => fun _ amem ↦ False.elim (List.not_mem_nil amem)
+  | x :: xs => by
+    intro a amem
+    rw [list_int_max_cons]
+    rcases List.mem_cons.mp amem with rfl | rhs
+    · exact Int.le_max_left _ _
+    · exact le_max_of_le_right (list_int_le_max xs a rhs)
+
+-- Blocked list filter that only keeps cells with -1 ≤ x, 0 ≤ y, y ≤ top, and
+-- x-coordinate less than or equal to one more than the maximum x coordinate in the trace
+-- To construct the final blocked list, this filter will be used with 'top' chosen
+-- to match the height of the west wall.
+def blocked_trim_quad1
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) : List (Int × Int) :=
+  blocked_trim_neg_one (blocked_trim_rect top (-1) (-1)
+    (list_int_max (List.map (fun a ↦ a.x) (trace n start blocked)) + 1) blocked)
+
+-- Prove the conditions under which the trace is unchanged by 'blocked_trim_quad1'
+lemma trace_trim_quad1_unchanged
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
+  (∀ rs ∈ trace n start blocked,
+  0 ≤ rs.x ∧ 0 ≤ rs.y ∧ rs.y < top ∧ (rs.y = 0 → rs.u ≠ uvec_left)) →
+  trace n start blocked = trace n start (blocked_trim_quad1 n start blocked top) := by
+  intro h
+  -- Prove that the bounds for the rectangular filter follow from the givens
+  have hbounds : ∀ (i : ℕ) (ilt : i < n),
+    (fun a ↦ a.y < top ∧ -1 < a.y ∧ -1 < a.x ∧
+     a.x < list_int_max (List.map (fun a ↦ a.x) (trace n start blocked)) + 1)
+    ((trace n start blocked)[i]'(by rwa [trace_length])) := by
+    intro i ilt
+    constructor
+    · exact (h _ (List.getElem_mem _)).2.2.1
+    constructor
+    · apply Int.lt_of_sub_pos; simp
+      apply Int.lt_add_one_of_le
+      exact (h _ (List.getElem_mem _)).2.1
+    constructor
+    · apply Int.lt_of_sub_pos; simp
+      apply Int.lt_add_one_of_le
+      exact (h _ (List.getElem_mem _)).1
+    · apply Int.lt_add_one_of_le
+      apply list_int_le_max
+      apply List.mem_map.mpr
+      exact ⟨_, List.getElem_mem _, rfl⟩
+  unfold blocked_trim_quad1
+  rw [← trace_trim_neg_one_unchanged]
+  · rwa [← trace_trim_rect_unchanged]
+  intro i ilt
+  -- Reorder / repackage the bounds for the y = -1 filter
+  have h' : ∀ rs ∈ trace n start blocked, 0 ≤ rs.y ∧ (rs.y = 0 → rs.u ≠ uvec_left) :=
+    fun rs rsmem ↦ ⟨(h rs rsmem).2.1, (h rs rsmem).2.2.2⟩
+  apply h'
+  convert List.getElem_mem _ using 2; swap
+  · rwa [trace_length]
+  rwa [← trace_trim_rect_unchanged]
