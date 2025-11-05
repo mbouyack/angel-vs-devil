@@ -138,14 +138,23 @@ lemma next_step_undo_cancel
       rwa [turn_left_undo_cancel]
     rw [if_pos h₂, turn_left_undo_cancel]
 
--- The "distance" between consecutive states in a trace is no greater than 1
-lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
-  dist (loc rs) (loc (next_step blocked rs)) ≤ 1 := by
-  unfold next_step
-  split_ifs with h₀ h₁
-  · unfold turn_right dist loc; simp
-  · unfold move_forward dist loc; simp
-    exact ⟨uvec_abs_x_le_one rs.u, uvec_abs_y_le_one rs.u⟩
+-- A right turn moves the runner a distance
+-- no more than '1' from the previous cell
+lemma turn_right_dist_le_one (rs : RunState) :
+  dist (loc rs) (loc (turn_right rs)) ≤ 1 := by
+  unfold turn_right dist loc; simp
+
+-- A forward step moves the runner a distance
+-- no more than '1' from the previous cell
+lemma move_forward_dist_le_one (rs : RunState) :
+  dist (loc rs) (loc (move_forward rs)) ≤ 1 := by
+  unfold move_forward dist loc; simp
+  exact ⟨uvec_abs_x_le_one rs.u, uvec_abs_y_le_one rs.u⟩
+
+-- A left turn moves the runner a distance
+-- no more than '1' from the previous cell
+lemma turn_left_dist_le_one (rs : RunState) :
+  dist (loc rs) (loc (turn_left rs)) ≤ 1 := by
   unfold turn_left dist loc; simp
   have (a b c : Int) (h : b.natAbs + c.natAbs = 1) : (a - (a + b + c)).natAbs ≤ 1 := by
     rw [Int.sub_eq_add_neg, Int.neg_add, Int.neg_add]
@@ -158,6 +167,15 @@ lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
     exact uvec_xabs_add_yabs_eq_one rs.u
   · apply this
     exact uvec_xabs_add_yabs_eq_one rs.u
+
+-- The "distance" between consecutive states in a trace is no greater than 1
+lemma next_step_dist_le_one (blocked : List (Int × Int)) (rs : RunState) :
+  dist (loc rs) (loc (next_step blocked rs)) ≤ 1 := by
+  unfold next_step
+  split_ifs with h₀ h₁
+  · exact turn_right_dist_le_one rs
+  · exact move_forward_dist_le_one rs
+  · exact turn_left_dist_le_one rs
 
 -- Adding more cells to the block list won't change the
 -- next step if that cell is not in the updated block list
