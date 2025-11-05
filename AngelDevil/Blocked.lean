@@ -5,6 +5,39 @@ import AngelDevil.Runner
    trimming.
 -/
 
+-- Removing elements from the blocked list has no effect on 'next_step'
+-- as long as none are "close" to the current cell
+lemma next_step_unchanged_of_close_blocked_unchanged
+  (rs : RunState) (blocked₀ blocked₁ : List (Int × Int))
+  (hss : blocked₁ ⊆ blocked₀) (hclose : ∀ a ∈ blocked₀, close 1 a (loc rs) → a ∈ blocked₁) :
+  next_step blocked₀ rs = next_step blocked₁ rs := by
+  -- Unfold just the left-hand side to limit the scope of 'split_ifs'
+  nth_rw 1 [next_step]
+  -- Show that in each of the three cases the relevant blocked cells
+  -- must either be in both blocked₀ and blocked₁, or neither
+  split_ifs with hleft₀ hforward₀ <;> unfold next_step
+  · have hleft₁ : loc (turn_left rs) ∈ blocked₁ := by
+      apply hclose _ hleft₀
+      rw [close_comm]
+      exact turn_left_dist_le_one rs
+    have hforward₁ : loc (move_forward rs) ∈ blocked₁ := by
+      apply hclose _ hforward₀
+      rw [close_comm]
+      exact move_forward_dist_le_one rs
+    simp; rw [if_pos hleft₁, if_pos hforward₁]
+  · have hleft₁ : loc (turn_left rs) ∈ blocked₁ := by
+      apply hclose _ hleft₀
+      rw [close_comm]
+      exact turn_left_dist_le_one rs
+    have hforward₁ : loc (move_forward rs) ∉ blocked₁ := by
+      contrapose! hforward₀
+      exact hss hforward₀
+    simp; rw [if_pos hleft₁, if_neg hforward₁]
+  · have hleft₁ : loc (turn_left rs) ∉ blocked₁ := by
+      contrapose! hleft₀
+      exact hss hleft₀
+    rw [if_pos hleft₁]
+
 -- Removing elements from the blocked list has no effect on the trace
 -- as long as none are "close" to cells in the original trace
 lemma trace_unchanged_of_close_blocked_unchanged
@@ -55,32 +88,8 @@ lemma trace_unchanged_of_close_blocked_unchanged
   let rs := (trace n start blocked₀)[i - 1]
   have rsmem : rs ∈ trace n start blocked₀ := List.getElem_mem _
   change next_step blocked₀ rs = next_step blocked₁ rs
-  -- Unfold just the left-hand side to limit the scope of 'split_ifs'
-  nth_rw 1 [next_step]
-  -- Show that in each of the three cases the relevant blocked cells
-  -- must either be in both blocked₀ and blocked₁, or neither
-  split_ifs with hleft₀ hforward₀ <;> unfold next_step
-  · have hleft₁ : loc (turn_left rs) ∈ blocked₁ := by
-      apply hclose _ hleft₀ ⟨rs, rsmem, _⟩
-      rw [close_comm]
-      exact turn_left_dist_le_one rs
-    have hforward₁ : loc (move_forward rs) ∈ blocked₁ := by
-      apply hclose _ hforward₀ ⟨rs, rsmem, _⟩
-      rw [close_comm]
-      exact move_forward_dist_le_one rs
-    simp; rw [if_pos hleft₁, if_pos hforward₁]
-  · have hleft₁ : loc (turn_left rs) ∈ blocked₁ := by
-      apply hclose _ hleft₀ ⟨rs, rsmem, _⟩
-      rw [close_comm]
-      exact turn_left_dist_le_one rs
-    have hforward₁ : loc (move_forward rs) ∉ blocked₁ := by
-      contrapose! hforward₀
-      exact hss hforward₀
-    simp; rw [if_pos hleft₁, if_neg hforward₁]
-  · have hleft₁ : loc (turn_left rs) ∉ blocked₁ := by
-      contrapose! hleft₀
-      exact hss hleft₀
-    rw [if_pos hleft₁]
+  apply next_step_unchanged_of_close_blocked_unchanged rs _ _ hss
+  exact fun a amem h ↦ hclose a amem ⟨rs, rsmem, h⟩
 
 -- Define a blocked list filter that removes all cells outside a given rectangle
 def blocked_trim_rect (top bottom left right : Int) (blocked : List (Int × Int)) :=
@@ -148,3 +157,172 @@ lemma trace_trim_rect_unchanged (n : Nat) (start : RunState) (blocked : List (In
     have := Int.ofNat_le.mpr (le_of_max_le_left hclose)
     rw [Int.natAbs_of_nonneg (le_trans (by norm_num) lesub), Int.natCast_one] at this
     absurd le_trans lesub this; push_neg; exact one_lt_two
+
+-- Define a blocked list filter that removes all cells with y = -1
+def blocked_trim_neg_one (blocked : List (Int × Int)) :=
+  List.filter (fun (a : Int × Int) ↦ a.2 ≠ -1) blocked
+
+-- Prove that using 'blocked_trim_neg_one' to trim the blocked list has no effect
+-- on the trace if all steps in the trace have non-negative y-coordinate and
+-- never face west when the y-coordinate is zero
+lemma trace_trim_neg_one_unchanged (n : Nat) (start : RunState) (blocked : List (Int × Int)) :
+  (∀ i (ilt : i < n),
+  (fun a ↦ 0 ≤ a.y ∧ (a.y = 0 → a.u ≠ uvec_left))
+  ((trace n start blocked)[i]'(by rwa [trace_length]))) →
+  trace n start blocked = trace n start (blocked_trim_neg_one blocked) := by
+  intro h
+  let blocked' := blocked_trim_neg_one blocked
+  change _ = trace n start blocked'
+  have hss : blocked' ⊆ blocked :=
+    fun a amem ↦ (List.mem_filter.mp amem).1
+  have hss' : ∀ a ∈ blocked, 0 ≤ a.2 → a ∈ blocked' := by
+    intro a amem ynn
+    apply List.mem_filter.mpr ⟨amem, _⟩; simp; push_neg
+    linarith
+  apply List.ext_getElem
+  · rw [trace_length, trace_length]
+  intro i ilt ilt'
+  have ilt'' : i < n := by rwa [trace_length] at ilt
+  have hnnil₀ : trace n start blocked ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    exact Nat.zero_lt_of_lt ilt
+  have hnnil₁ : trace n start blocked' ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    exact Nat.zero_lt_of_lt ilt'
+  -- Handle the case where i = 0
+  by_cases iz : i = 0
+  · subst iz
+    rw [trace_getElem_zero_of_nonnil _ _ _ hnnil₀]
+    rw [trace_getElem_zero_of_nonnil _ _ _ hnnil₁]
+  rename' iz => inz; push_neg at inz
+  have ipos : 0 < i := Nat.pos_of_ne_zero inz
+  -- Apply the trace recurrence
+  rw [trace_getElem_recurrence' n start blocked i ipos ilt'']
+  rw [trace_getElem_recurrence' n start blocked' i ipos ilt'']
+  have iplt : i - 1 < n - 1 :=
+    Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt''
+  -- Recurse
+  have hrecurse :
+    (trace (n - 1) start blocked)[i - 1]'(by rwa [trace_length]) =
+    (trace (n - 1) start blocked')[i - 1]'(by rwa [trace_length]) := by
+    congr 1
+    apply trace_trim_neg_one_unchanged (n - 1) start blocked
+    intro j jlt
+    rw [getElem_congr_coll (trace_take n start blocked (n - 1) (Nat.sub_le _ _))]
+    rw [List.getElem_take]
+    exact h j (lt_of_lt_of_le jlt (Nat.sub_le _ _))
+  -- Rewrite the recursion for the trace of length 'n'
+  rw [getElem_congr_coll (trace_take n start blocked (n - 1) (Nat.sub_le _ _))] at hrecurse
+  rw [getElem_congr_coll (trace_take n start blocked' (n - 1) (Nat.sub_le _ _))] at hrecurse
+  rw [List.getElem_take, List.getElem_take] at hrecurse
+  rw [← hrecurse]
+  -- Re-state the goal for clarity
+  let rs := (trace n start blocked)[i - 1]
+  change next_step blocked rs = next_step blocked' rs
+  -- Handle the case where the y-coordinate of 'rs' is positive
+  by_cases ypos : 0 < rs.y
+  · apply next_step_unchanged_of_close_blocked_unchanged rs blocked blocked' hss
+    intro a amem hclose
+    apply List.mem_filter.mpr ⟨amem, _⟩; simp; push_neg
+    by_contra! hay
+    have := Int.ofNat_le.mpr (le_of_max_le_right hclose)
+    rw [← Int.natAbs_neg, Int.neg_sub, hay, Int.sub_neg] at this;
+    have ysnn : 0 ≤ (loc rs).2 + 1 :=
+      le_of_lt (lt_trans ypos ((lt_add_iff_pos_right _).mpr (one_pos)))
+    rw [Int.natAbs_of_nonneg ysnn, Int.natCast_one] at this
+    absurd Int.le_sub_right_of_add_le this; simp
+    exact ypos
+  rename' ypos => ynpos; push_neg at ynpos
+  -- If rs.y is non-positive, it must be zero
+  have yz := le_antisymm ynpos (h (i - 1) (lt_of_le_of_lt (Nat.sub_le _ _) ilt'')).1
+  have hnleft : rs.u ≠ uvec_left := (h (i - 1) (lt_of_le_of_lt (Nat.sub_le _ _) ilt'')).2 yz
+  have htrace : (trace n start blocked)[i] = next_step blocked rs :=
+    trace_getElem_recurrence' n start blocked i ipos ilt''
+  unfold next_step at htrace
+  -- Finish the proof for each of the possible directions and possible steps
+  -- That's 9 different cases, but I don't have any better ideas!
+  split_ifs at htrace with hleft hforward
+  · -- First, consider the case where the runner tries to turn right
+    rcases Finset.mem_insert.mp (uvec_finset_mem rs.u) with hup | hrest
+    · -- If the runner begins facing up, the 'left' and 'forward' cells
+      -- both have y = 1, and so will be in both blocked lists, or neither
+      unfold next_step; simp
+      have hleft' : loc (turn_left rs) ∈ blocked' := by
+        apply hss' _ hleft
+        unfold turn_left loc; simp
+        rw [hup, yz, uvec_up]; simp
+      have hforward' : loc (move_forward rs) ∈ blocked' := by
+        apply hss' _ hforward
+        unfold move_forward loc; simp
+        rw [hup, yz, uvec_up]; simp
+      rw [if_pos hleft, if_pos hforward, if_pos hleft', if_pos hforward']
+    rcases Finset.mem_insert.mp hrest with hdown | hrest
+    · -- Show that if the runner begins facing down and
+      -- turns right, it produces a prohibited state
+      absurd (htrace ▸ (h i ilt'')).2; simp
+      unfold turn_right uvec_left; simp
+      rw [hdown]
+      exact ⟨yz, rfl, rfl⟩
+    have hright := Finset.mem_singleton.mp (Finset.mem_of_mem_insert_of_ne hrest hnleft)
+    · -- If the runner begins facing right, the 'left' and 'forward' cells
+      -- both have y ≥ 0, and so will be in both blocked lists, or neither
+      unfold next_step; simp
+      have hleft' : loc (turn_left rs) ∈ blocked' := by
+        apply hss' _ hleft
+        unfold turn_left loc; simp
+        rw [hright, yz, uvec_right]; simp
+      have hforward' : loc (move_forward rs) ∈ blocked' := by
+        apply hss' _ hforward
+        unfold move_forward loc; simp
+        rw [hright, yz, uvec_right]; simp
+      rw [if_pos hleft, if_pos hforward, if_pos hleft', if_pos hforward']
+  · -- Next, consider the case where the runner tries to move forward
+    rcases Finset.mem_insert.mp (uvec_finset_mem rs.u) with hup | hrest
+    · -- If the runner begins facing up, the 'left' and 'forward' cells
+      -- both have y = 1, and so will be in both blocked lists, or neither
+      unfold next_step; simp
+      have hleft' : loc (turn_left rs) ∈ blocked' := by
+        apply hss' _ hleft
+        unfold turn_left loc; simp
+        rw [hup, yz, uvec_up]; simp
+      have hforward' : loc (move_forward rs) ∉ blocked' :=
+        fun h ↦ False.elim (hforward (hss h))
+      rw [if_pos hleft, if_neg hforward, if_pos hleft', if_neg hforward']
+    rcases Finset.mem_insert.mp hrest with hdown | hrest
+    · -- Show that if the runner begins facing down and
+      -- moves forward, it produces a prohibited state
+      absurd (htrace ▸ (h i ilt'')).1; simp
+      unfold move_forward
+      rw [hdown, yz, uvec_down]; simp
+    have hright := Finset.mem_singleton.mp (Finset.mem_of_mem_insert_of_ne hrest hnleft)
+    · -- If the runner begins facing right, the 'left' and 'forward' cells
+      -- both have y ≥ 0, and so will be in both blocked lists, or neither
+      unfold next_step; simp
+      have hleft' : loc (turn_left rs) ∈ blocked' := by
+        apply hss' _ hleft
+        unfold turn_left loc; simp
+        rw [hright, yz, uvec_right]; simp
+      have hforward' : loc (move_forward rs) ∉ blocked' :=
+        fun h ↦ False.elim (hforward (hss h))
+      rw [if_pos hleft, if_neg hforward, if_pos hleft', if_neg hforward']
+  · -- Last, consider the case where the runner tries to turn left
+    rcases Finset.mem_insert.mp (uvec_finset_mem rs.u) with hup | hrest
+    · -- If the runner begins facing up, the 'left' and 'forward' cells
+      -- both have y = 1, and so will be in both blocked lists, or neither
+      unfold next_step; simp
+      have hleft' : loc (turn_left rs) ∉ blocked' :=
+        fun h ↦ False.elim (hleft (hss h))
+      rw [if_neg hleft, if_neg hleft']
+    rcases Finset.mem_insert.mp hrest with hdown | hrest
+    · -- Show that if the runner begins facing down and
+      -- turns left, it produces a prohibited state
+      absurd (htrace ▸ (h i ilt'')).1; simp
+      unfold turn_left; simp
+      rw [hdown, yz, uvec_down]; simp
+    have hright := Finset.mem_singleton.mp (Finset.mem_of_mem_insert_of_ne hrest hnleft)
+    · -- If the runner begins facing right, the 'left' and 'forward' cells
+      -- both have y ≥ 0, and so will be in both blocked lists, or neither
+      unfold next_step; simp
+      have hleft' : loc (turn_left rs) ∉ blocked' :=
+        fun h ↦ False.elim (hleft (hss h))
+      rw [if_neg hleft, if_neg hleft']
