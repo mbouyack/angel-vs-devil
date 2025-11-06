@@ -395,3 +395,26 @@ lemma trace_trim_quad1_unchanged
   convert List.getElem_mem _ using 2; swap
   · rwa [trace_length]
   rwa [← trace_trim_rect_unchanged]
+
+-- Applying the "quad1" filter to a blocked list can only shorten it
+lemma trace_trim_quad1_length_le
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
+  (blocked_trim_quad1 n start blocked top).length ≤ blocked.length :=
+  le_trans (List.length_filter_le _ _) (List.length_filter_le _ _)
+
+-- Prove the conditions under which an element of 'blocked' is still
+-- in the list after the "quad1" filter is applied
+lemma trace_trim_quad1_mem
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
+  ∀ a ∈ blocked, 0 ≤ a.2 ∧ a.2 ≤ top ∧ -1 ≤ a.1 ∧
+  (∃ rs ∈ trace n start blocked, a.1 ≤ (loc rs).1 + 1) →
+  a ∈ blocked_trim_quad1 n start blocked top := by
+  intro a amem ⟨ley, yle, lex, exle⟩
+  apply List.mem_filter.mpr ⟨_, (by simp; linarith)⟩
+  apply List.mem_filter.mpr ⟨amem, _⟩; simp
+  use yle, le_trans (by norm_num) ley, lex
+  rcases exle with ⟨rs, rsmem, hrs⟩
+  apply Int.le_add_of_sub_right_le (le_trans (Int.sub_right_le_of_le_add hrs) _)
+  apply list_int_le_max
+  rw [List.mem_map]
+  use rs, rsmem; rfl
