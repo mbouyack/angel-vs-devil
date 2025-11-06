@@ -69,10 +69,13 @@ lemma final_state_loc_eq_journey_last {p : Nat} (S : RunBuilder p) :
     exact S.dest (List.ne_nil_of_length_pos (Nat.pos_of_ne_zero hlz))
 
 -- List of cells necessary to prevent the runner from ever moving west of the y-axis
--- TODO: Reevaluate whether the size of the wall should be smaller by 'p'
--- I increased it to make sure one of the proofs would work but it may not be necessary.
+-- Note that the wall originally ranged from (-1, -(n * p)) to (-1, (n * p)), but
+-- this allows the runner to touch a blocked cell that would be removed by the filter
+-- "blocked_trim_quad1" (e.g., (0, n * p + 1)). That means that applying the filter
+-- could alter the runner's course, which breaks the final argument of the proof.
+-- To fix this, just increase the height of the wall by one.
 def west_wall (p n : Nat) :=
-  List.map (fun i : Nat ↦ (-1, (i : Int) - Int.ofNat (n * p))) (List.range (2 * n * p + 1))
+  List.map (fun i : Nat ↦ (-1, (i : Int) - Int.ofNat (n * p))) (List.range (2 * n * p + 1 + 1))
 
 -- Any cell which is an elment of the west wall has x-coordinate -1
 lemma west_wall_xcoord_of_mem (p n : Nat) :
@@ -85,7 +88,7 @@ lemma west_wall_xcoord_of_mem (p n : Nat) :
 
 -- Prove the conditions for a cell to be an element of the west wall
 lemma west_wall_mem (p n : Nat) :
-  ∀ y (_ : -(Int.ofNat (n * p)) ≤ y) (_ : y ≤ Int.ofNat (n * p)), (-1, y) ∈ west_wall p n := by
+  ∀ y (_ : -(Int.ofNat (n * p)) ≤ y) (_ : y ≤ Int.ofNat (n * p) + 1), (-1, y) ∈ west_wall p n := by
   intro y ley yle
   unfold west_wall
   apply List.mem_iff_getElem.mpr
@@ -96,8 +99,11 @@ lemma west_wall_mem (p n : Nat) :
   use (by
     rw [List.length_map, List.length_range]
     apply (Int.toNat_lt hnonneg).mpr
-    rw [Int.natCast_add, Int.natCast_one, mul_assoc, two_mul, Int.natCast_add]
-    exact Int.lt_add_one_of_le (Int.add_le_add_right yle _)
+    rw [Int.natCast_add, Int.natCast_one, mul_assoc, two_mul]
+    rw [Int.natCast_add, Int.natCast_add, Int.natCast_one]
+    apply Int.lt_add_one_of_le
+    rw [add_assoc, add_comm]
+    exact Int.add_le_add_left yle _
   )
   rw [List.getElem_map, List.getElem_range, Int.ofNat_toNat]
   rw [max_eq_left hnonneg, Int.add_sub_cancel]
@@ -600,6 +606,8 @@ lemma make_block_list_subset (D : Devil) (p m n : Nat) (mle : m ≤ n) :
     · apply Int.sub_right_le_of_le_add
       rw [mul_assoc, two_mul] at alt
       apply le_trans ((Int.natCast_add _ _) ▸ (Int.ofNat_le_ofNat_of_le (Nat.le_of_lt_add_one alt)))
+      rw [add_right_comm, Int.natCast_one]
+      apply (Int.add_le_add_iff_right 1).mpr
       exact Int.add_le_add_right hle _
 
 -- Expand the 'next_sprint' of a 'make_run' using 'make_block_list'
@@ -766,7 +774,7 @@ lemma make_run_x_nonneg (D : Devil) (p n : Nat) :
     -- of 'List.mem_union_iff.mpr; right' and watch it fail!
     -- (It has something to do with using two different types of BEq)
     apply List.mem_union_iff.mpr; right
-    convert west_wall_mem p n (loc rs').2 ley yle
+    convert west_wall_mem p n (loc rs').2 ley (Int.le_add_one yle)
   -- If the sprint moved off the starting square then all states but
   -- the first must not be in the blocked list. This leaves rs' ≠ rs₀
   -- as the remaining goal
@@ -876,7 +884,7 @@ lemma make_run_next_sprint_avoids_later_block_list_of_nice
     apply rsnmembl (List.mem_union_iff.mpr _); right
     rw [make_run_eaten_length]
     rw [← hi] at *
-    exact west_wall_mem _ _ _ lersy rsyle
+    exact west_wall_mem _ _ _ lersy (Int.le_add_one rsyle)
 
 /- Note that it *is* possible to force the runner to remain on a blocked cell
    if the devil is not nice. Technically, even with a devil that isn't nice,
