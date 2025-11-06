@@ -1,4 +1,4 @@
-import AngelDevil.Runner
+import AngelDevil.Trace
 
 /- This file defines a mechanism for creating a "trimmed" blocked list
    and proves the conditions under which a trace is unaffected by this
