@@ -949,3 +949,53 @@ lemma endgame_southwest_point_eq {p : Nat} (E : Endgame p) :
     unfold undo_turn_left run_start loc uvec_up; simp
   rw [if_neg huleft]
   unfold undo_turn_left run_start loc uvec_up; simp
+
+-- Prove the bounds check for the southwest point
+-- (which comes immediately after the "endpoint")
+lemma endgame_southeast_point_lt {p : Nat} (E : Endgame p) :
+  E.i + 1 < (endgame_perimeter E).length := by
+  apply lt_of_le_of_ne (Nat.add_one_le_of_lt (endgame_endpoint_lt E))
+  unfold endgame_perimeter
+  rw [trace_length]
+  by_contra! iseq
+  -- If E.i + 1 = P, the endpoint is equal to the southwest point
+  -- But this is impossible because the former has x = 0 and the
+  -- latter has x = -1
+  absurd endgame_endpoint_yz E
+  unfold endgame_endpoint
+  rw [getElem_congr_idx (Nat.eq_sub_of_add_eq iseq)]
+  have rw₀ := (Prod.ext_iff.mp (endgame_southwest_point_eq E)).2
+  unfold loc at rw₀; simp at rw₀
+  rw [rw₀]
+  norm_num
+
+-- Prove that the southeast point has y = -1 and x-coordinate
+-- one greater than the endgame endpoint.
+lemma endgame_southeast_point_eq {p : Nat} (E : Endgame p) :
+  loc ((endgame_perimeter E)[E.i + 1]'(endgame_southeast_point_lt E)) =
+  ((endgame_endpoint E).x + 1, -1) := by
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  let T := endgame_perimeter E
+  unfold endgame_perimeter
+  have ilt : E.i < T.length := by
+    exact endgame_endpoint_lt E
+  have islt : E.i + 1 < endgame_perimeter_length E := by
+    convert endgame_southeast_point_lt E
+    unfold endgame_perimeter
+    rw [trace_length]
+  rw [trace_getElem_recurrence _ _ _ _ islt]
+  unfold next_step
+  have : loc (turn_left T[E.i]) = ((endgame_endpoint E).x + 1, -1) := by
+    have rw₀ := endgame_endpoint_eq E
+    unfold endgame_endpoint at rw₀; unfold T loc; simp
+    rw [endgame_endpoint_eq E, rw₀]
+    unfold turn_left; simp
+    rw [E.hsouth.2.1, E.hsouth.2.2]
+    unfold uvec_down; simp
+  have hleft : loc (turn_left T[E.i]) ∉ endgame_blocked E := by
+    apply trace_trim_quad1_notmem_of_yneg
+    rw [this]; simp
+  unfold T endgame_perimeter at hleft
+  rw [if_pos hleft]
+  exact this
