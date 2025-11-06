@@ -1536,6 +1536,35 @@ lemma run_path_x_nonneg (D : Devil) (p n : Nat) :
   rcases make_run_sprints_getElem_exists_of_run_path_mem D p n npos rs rsmem with ⟨i, ilt, j, jlt, hirs⟩
   exact hirs ▸ (make_run_x_nonneg D p n _ (List.getElem_mem ilt) _ (List.getElem_mem jlt))
 
+-- The vertical position of the run path is limited by
+-- the power of the angel and the number of elapsed turns
+lemma run_path_y_le (D : Devil) (p n : Nat) :
+  ∀ rs ∈ (RunPath D p n), rs.y ≤ ↑(n * p) := by
+  intro rs rsmem
+  by_cases nz : n = 0
+  · subst nz
+    rw [run_path_of_length_zero] at rsmem
+    rw [List.mem_singleton.mp rsmem]
+    unfold run_start; simp
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  -- Apply the run path recurrence so we can recurse if we're not in the last sprint
+  rw [run_path_recurrence D p n npos] at rsmem
+  rcases List.mem_append.mp rsmem with lhs | rhs
+  · apply le_trans (run_path_y_le D p (n - 1) _ lhs)
+    rw [Nat.sub_mul, one_mul, Int.natCast_sub (Nat.le_mul_of_pos_left _ npos)]
+    exact Int.sub_le_self _ (Int.natCast_nonneg _)
+  -- Rewrite the last sprint as a 'next_sprint'
+  rw [List.getLast_congr _ _ (make_run_sprints_recurrence D p n npos)] at rhs; swap
+  · apply List.append_ne_nil_of_right_ne_nil
+    exact List.cons_ne_nil _ _
+  rw [List.getLast_append_right (List.cons_ne_nil _ _)] at rhs
+  rw [List.getLast_singleton] at rhs
+  -- We will show that rs is "close" to the origin
+  apply close_origin_yle (n * p) (loc rs)
+  rw [mul_comm, ← Nat.sub_one_add_one nnz]
+  exact make_run_next_sprint_mem_origin_close D p (n - 1) rs (List.mem_of_mem_tail rhs)
+
 -- If the runner ever wanders south of the x-axis, there must be some step
 -- along their path where they are on the positive x-axis, facing south or west.
 lemma run_path_intersects_xaxis_of_south (D : Devil) (p n : Nat) (hnice : nice D p) :
