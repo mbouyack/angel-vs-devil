@@ -1233,6 +1233,26 @@ lemma run_path_exist_of_length_of_ppos (D : Devil) (p : Nat) (ppos : 0 < p) :
   apply lt_of_le_of_lt (Nat.le_of_lt_add_one ((Nat.sub_lt_iff_lt_add (Nat.one_le_of_lt Npos)).mp h))
   convert run_path_length_increasing_of_ppos D p (n + 1) (Nat.add_one_pos _) ppos
 
+-- Prove a lower bound on the length of a run path
+lemma run_path_length_lb (D : Devil) (p n : Nat) : 1 + p * n ≤ (RunPath D p n).length := by
+  by_cases nz : n = 0
+  · subst nz
+    rw [run_path_of_length_zero, List.length_singleton, mul_zero, add_zero]
+  rename' nz => nnz; push_neg at nnz
+  have npos : 0 < n := Nat.pos_of_ne_zero nnz
+  have hnnil : (make_run D p n).sprints ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rwa [make_run_sprints_length]
+  have plt : p < ((make_run D p n).sprints.getLast hnnil).length := by
+    rw [make_run_sprints_get_last_eq_sprint D p n npos]
+    exact sprint_length_lb _ _ _
+  rw [run_path_length_recurrence D p n npos]
+  nth_rw 1 [← Nat.sub_one_add_one nnz]
+  rw [mul_add, ← add_assoc, mul_one]
+  rw [Nat.add_sub_assoc (Nat.one_le_of_lt plt)]
+  apply Nat.add_le_add (run_path_length_lb D p (n - 1))
+  exact Nat.le_sub_one_of_lt plt
+
 -- If the devil is "nice", the runner will never visit a cell that was previously eaten.
 -- Note that this result is more general than 'make_run_journey_allowed_of_nice' in that
 -- it applies to *all* cells visited by the runner, not just those in the journey.
