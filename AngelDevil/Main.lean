@@ -7,6 +7,7 @@ import AngelDevil.Focused
 import AngelDevil.Runner
 import AngelDevil.Dupes
 import AngelDevil.Perimeter
+import AngelDevil.Blocked
 
 set_option linter.style.longLine false
 
@@ -534,13 +535,16 @@ structure Endgame (p : Nat) where
   hpath : T = List.take (i + 1) (RunPath D p n)
   hnodupe : list_nodupes T
   hynonneg : ∀ rs ∈ T, 0 ≤ rs.y
-  hwest : ∀ j (jlt : j < T.length),
-    (T[j]'jlt).y = 0 → (T[j]'jlt).u ≠ uvec_left
+  hwest : ∀ rs ∈ T,
+    rs.y = 0 → rs.u ≠ uvec_left
   hsouth : south_facing_yz_xnn (T.getLast (by
     apply List.ne_nil_of_length_pos
     rw [hpath, List.length_take_of_le (Nat.add_one_le_of_lt hlt)]
     exact Nat.add_one_pos _
   ))
+
+-- TODO: These next three results are unused.
+-- Consider removing them if they are unneeded.
 
 -- Prove that for some 'n' the run of n sprints loops
 lemma loop_sprint_exists_of_nice_devil_wins
@@ -730,7 +734,8 @@ def endgame_of_nice_devil_wins
     have ilek : i ≤ k := Nat.find_min' hiex ⟨klt', hk⟩
     exact not_lt_of_ge (le_trans (Nat.le_of_lt_add_one jlt) ilek) klt
   hwest := by
-    intro j jlt hyz
+    intro rs rsmem hyz
+    rcases List.getElem_of_mem rsmem with ⟨j, jlt, rfl⟩
     let n := find_xaxis_sprint_of_nice_devil_wins D p ppos hnice hwins
     let i := find_xaxis_step_of_nice_devil_wins D p ppos hnice hwins
     let L := (RunPath D p n).length
@@ -769,3 +774,111 @@ def endgame_of_nice_devil_wins
     rw [List.length_take_of_le (Nat.add_one_le_of_lt ilt)]
     rw [Nat.add_one_sub_one]
     rfl
+
+-- Produce the final 'blocked' list by taking the last blocked list
+-- used in the endgame trace and removing any cells eaten by the devil
+-- outside of the first quadrant or higher than the west wall.
+abbrev endgame_blocked {p : Nat} (E : Endgame p) : List (Int × Int) :=
+  blocked_trim_quad1 (E.i + 1) run_start (make_block_list E.D p (E.n + 1)) (E.n * p + 1)
+
+-- Prove that run_start is "valid" under the endgame blocked list
+lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :
+  run_start_valid (endgame_blocked E) run_start := by
+  unfold run_start_valid
+  let ⟨rsnmem, lormem⟩ := run_start_valid_of_nice E.D p E.hnice (E.n + 1)
+  let BL := make_block_list E.D p (E.n + 1)
+  let T := trace (E.i + 1) run_start BL
+  have tlpos : 0 < T.length := by
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  have hnnil : T ≠ [] := List.ne_nil_of_length_pos tlpos
+  constructor
+  · apply trace_trim_quad1_notmem
+    exact rsnmem
+  · apply trace_trim_quad1_mem _ _ _ _ _ lormem
+    unfold run_start left_of_runner uvec_up; simp
+    use (by rw [← Int.natCast_mul]; linarith), run_start
+    constructor
+    · apply List.mem_of_getElem
+      · convert trace_getElem_zero_of_nonnil _ _ _ hnnil
+      · exact tlpos
+    · unfold run_start loc; simp
+
+-- The endgame trace is equal to the trace of length 'E.i + 1',
+-- starting at 'run_start' and using the endgame blocked list
+lemma endgame_trace_eq {p : Nat} (E : Endgame p) :
+  E.T = trace (E.i + 1) run_start (endgame_blocked E) := by
+  let BL := make_block_list E.D p (E.n + 1)
+  let RP := RunPath E.D p E.n
+  rw [E.hpath]
+  have Eislt := Nat.add_one_le_of_lt E.hlt
+  have htrace := run_path_eq_trace_of_nice E.D p E.n (E.n + 1) (by simp) E.hnice
+  have htake := trace_take RP.length run_start BL (E.i + 1) Eislt
+  rw [htrace, ← htake]
+  apply trace_trim_quad1_unchanged (E.i + 1) run_start BL (E.n * p + 1)
+  intro rs rsmem
+  have rsmem' : rs ∈ RP := by
+    unfold RP
+    rw [htrace]
+    apply List.mem_of_mem_take
+    rwa [← htake]
+  rcases List.getElem_of_mem rsmem with ⟨i, ilt, hi⟩
+  have rsmem'' : rs ∈ E.T := by
+    rw [← hi, E.hpath, htrace, ← htake]
+    exact List.getElem_mem _
+  constructor
+  · exact run_path_x_nonneg E.D p E.n rs rsmem'
+  constructor
+  · exact E.hynonneg rs rsmem''
+  constructor
+  · apply Int.lt_add_one_of_le
+    rw [← Int.natCast_mul]
+    exact run_path_y_le E.D p E.n _ rsmem'
+  · exact E.hwest _ rsmem''
+
+def endgame_perimeter_length {p : Nat} (E : Endgame p) : Nat :=
+  perimeter_length run_start (endgame_blocked E) (endgame_run_start_valid E)
+
+-- Give a name to the trace which circumnavigates the endgame blocked list
+def endgame_perimeter {p : Nat} (E : Endgame p) : List RunState :=
+  trace (endgame_perimeter_length E) run_start (endgame_blocked E)
+
+-- Prove that the endpoint of the endgame trace falls within the endgame perimeter
+lemma endgame_endpoint_lt {p : Nat} (E : Endgame p) :
+  E.i < (endgame_perimeter E).length := by
+  unfold endgame_perimeter
+  rw [trace_length, endgame_perimeter_length]
+  by_contra! lei
+  let BL := endgame_blocked E
+  let T := trace (E.i + 1) run_start BL
+  have hvalid := endgame_run_start_valid E
+  have hnnil : T ≠ [] := by
+    apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  let P := perimeter_length run_start BL hvalid
+  have Ppos : 0 < P :=
+    perimeter_length_pos run_start BL hvalid
+  -- Show that if E.i is not less than that perimeter length,
+  -- there must be a duplicate (which is a contradiction)
+  have Psle : P + 1 ≤ T.length := by
+    rw [trace_length]
+    exact Nat.add_one_le_add_one_iff.mpr lei
+  absurd E.hnodupe
+  rw [list_not_nodupes]
+  use 0, P, (perimeter_length_pos _ _ hvalid), (by
+    rw [E.hpath]
+    rw [List.length_take_of_le (Nat.add_one_le_of_lt E.hlt)]
+    exact Nat.lt_add_one_of_le lei
+  )
+  repeat rw [getElem_congr_coll (endgame_trace_eq E)]
+  rw [trace_getElem_zero_of_nonnil (E.i + 1) run_start BL hnnil]; symm
+  have hrepeat := trace_start_repeats_idx run_start BL hvalid
+  rw [List.getElem_take' _ (Nat.lt_add_one P)]
+  rw [← getElem_congr_idx (Nat.add_one_sub_one P)]; swap
+  · rw [List.length_take_of_le Psle]; simp
+  rw [List.getLast_eq_getElem] at hrepeat
+  convert hrepeat
+  · rw [← trace_take]
+    exact Nat.add_one_le_add_one_iff.mpr lei
+  · rw [trace_length]
