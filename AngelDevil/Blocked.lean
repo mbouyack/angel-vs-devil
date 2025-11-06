@@ -421,9 +421,27 @@ lemma trace_trim_quad1_mem
 
 -- If a cell was not in the original blocked list, it also will not
 -- be in the list that results from applying the "quad1" filter.
-lemma trace_trim_quad1_notmem
+lemma trace_trim_quad1_notmem_of_notmem
   (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
   ∀ a, a ∉ blocked → a ∉ blocked_trim_quad1 n start blocked top := by
   intro a amem
   contrapose! amem
   exact (List.mem_filter.mp (List.mem_filter.mp amem).1).1
+
+-- If a cell has y-coordinate less than zero, it will not be in
+-- the blocked list that results from applying the "quad1" filter.
+lemma trace_trim_quad1_notmem_of_yneg
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
+  ∀ a, a.2 < 0 → a ∉ blocked_trim_quad1 n start blocked top := by
+  intro a aylt amem
+  have ayne : a.2 ≠ -1 := by
+    have := (List.mem_filter.mp amem).2
+    simp at this; push_neg at this
+    assumption
+  have aylt' : a.2 < -1 := by
+    apply lt_of_le_of_ne _ ayne
+    linarith
+  absurd aylt'; push_neg
+  have := (List.mem_filter.mp (List.mem_filter.mp amem).1).2
+  simp at this
+  exact this.2.1

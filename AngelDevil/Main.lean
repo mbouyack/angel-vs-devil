@@ -543,28 +543,6 @@ structure Endgame (p : Nat) where
     exact Nat.add_one_pos _
   ))
 
--- TODO: These next three results are unused.
--- Consider removing them if they are unneeded.
-
--- Prove that for some 'n' the run of n sprints loops
-lemma loop_sprint_exists_of_nice_devil_wins
-  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
-  ∃ n, list_has_dupes (RunPath D p n) := by
-  rcases run_path_loops_of_nice_devil_wins D p hnice hwins with ⟨N, h⟩
-  rcases run_path_exist_of_length_of_ppos D p ppos N with ⟨n, Nlt⟩
-  exact ⟨n, h n Nlt⟩
-
--- Find the first sprint on which the runner returns to the start
-def find_loop_sprint_of_nice_devil_wins
-  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) : Nat :=
-  Nat.find (loop_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
-
--- The run path found by 'find_loop_sprint_of_nice_devil_wins' does in-fact contain a loop
-lemma find_loop_has_loop
-  (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
-  list_has_dupes (RunPath D p (find_loop_sprint_of_nice_devil_wins D p ppos hnice hwins)) :=
-  Nat.find_spec (loop_sprint_exists_of_nice_devil_wins D p ppos hnice hwins)
-
 -- Prove that for some 'n' the run path of n sprints intersects the x-axis, facing south
 lemma xaxis_sprint_exists_of_nice_devil_wins
   (D : Devil) (p : Nat) (ppos : 0 < p) (hnice : nice D p) (hwins : devil_wins' D p) :
@@ -793,7 +771,7 @@ lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :
     exact Nat.add_one_pos _
   have hnnil : T ≠ [] := List.ne_nil_of_length_pos tlpos
   constructor
-  · apply trace_trim_quad1_notmem
+  · apply trace_trim_quad1_notmem_of_notmem
     exact rsnmem
   · apply trace_trim_quad1_mem _ _ _ _ _ lormem
     unfold run_start left_of_runner uvec_up; simp
@@ -803,6 +781,14 @@ lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :
       · convert trace_getElem_zero_of_nonnil _ _ _ hnnil
       · exact tlpos
     · unfold run_start loc; simp
+
+lemma endgame_trace_ne_nil {p : Nat} (E : Endgame p) : E.T ≠ [] := by
+  apply List.ne_nil_of_length_pos
+  rw [E.hpath]
+  have isle : E.i + 1 ≤ (RunPath E.D p E.n).length :=
+    Nat.add_one_le_of_lt E.hlt
+  rw [List.length_take_of_le isle]
+  exact Nat.add_one_pos _
 
 -- The endgame trace is equal to the trace of length 'E.i + 1',
 -- starting at 'run_start' and using the endgame blocked list
@@ -843,6 +829,10 @@ def endgame_perimeter_length {p : Nat} (E : Endgame p) : Nat :=
 def endgame_perimeter {p : Nat} (E : Endgame p) : List RunState :=
   trace (endgame_perimeter_length E) run_start (endgame_blocked E)
 
+lemma endgame_perimeter_length_pos {p : Nat} (E : Endgame p) :
+  0 < endgame_perimeter_length E := by
+  apply perimeter_length_pos
+
 -- Prove that the endpoint of the endgame trace falls within the endgame perimeter
 lemma endgame_endpoint_lt {p : Nat} (E : Endgame p) :
   E.i < (endgame_perimeter E).length := by
@@ -882,3 +872,80 @@ lemma endgame_endpoint_lt {p : Nat} (E : Endgame p) :
   · rw [← trace_take]
     exact Nat.add_one_le_add_one_iff.mpr lei
   · rw [trace_length]
+
+-- Prove a lower bound on length of the endgame trace
+lemma endgame_endpoint_lb {p : Nat} (E : Endgame p) : (E.n - 1) * p + 1 ≤ E.i := by
+  apply le_trans _ E.hlb
+  rw [add_comm, mul_comm]
+  exact run_path_length_lb E.D p (E.n - 1)
+
+def endgame_endpoint {p : Nat} (E : Endgame p) : RunState :=
+  (endgame_perimeter E)[E.i]'(endgame_endpoint_lt E)
+
+lemma endgame_endpoint_eq {p : Nat} (E : Endgame p) :
+  endgame_endpoint E = E.T.getLast (endgame_trace_ne_nil E) := by
+  let BL := (endgame_blocked E)
+  let P := endgame_perimeter_length E
+  have isle : E.i + 1 ≤ (trace P run_start BL).length :=
+    Nat.add_one_le_of_lt (endgame_endpoint_lt E)
+  have isle' : E.i + 1 ≤ P := by
+    unfold endgame_perimeter at isle
+    rwa [trace_length] at isle
+  rw [List.getLast_congr _ _ (endgame_trace_eq E)]; swap
+  · apply List.ne_nil_of_length_pos
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  have htake := trace_take P run_start BL _ isle'
+  rw [List.getLast_congr _ _ htake]; swap
+  · apply List.ne_nil_of_length_pos
+    rw [List.length_take_of_le isle]
+    exact Nat.add_one_pos _
+  rw [List.getLast_eq_getElem, List.getElem_take]
+  unfold endgame_endpoint; congr
+  rw [List.length_take_of_le isle]; simp
+
+lemma endgame_endpoint_yz {p : Nat} (E : Endgame p) :
+  (endgame_endpoint E).y = 0 := by
+  convert E.hsouth.2.1
+  exact endgame_endpoint_eq E
+
+lemma endgame_endpoint_lex {p : Nat} (E : Endgame p) :
+  0 ≤ (endgame_endpoint E).x := by
+  convert E.hsouth.1
+  exact endgame_endpoint_eq E
+
+-- Prove that the last point in the perimeter has coordinates (-1, -1)
+lemma endgame_southwest_point_eq {p : Nat} (E : Endgame p) :
+  loc ((endgame_perimeter E)[endgame_perimeter_length E - 1]'(by
+    unfold endgame_perimeter
+    rw [trace_length]
+    apply Nat.sub_one_lt (Nat.ne_zero_of_lt (endgame_perimeter_length_pos E))
+  )) = (-1, -1) := by
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  have Ppos : 0 < P := by
+    apply perimeter_length_pos
+  have hvalid := endgame_run_start_valid E
+  have hrepeat := trace_start_repeats_idx run_start BL hvalid
+  change (trace (P + 1) run_start BL).getLast _ = _ at hrepeat
+  rw [List.getLast_eq_getElem] at hrepeat
+  have rw₀ : (trace (P + 1) run_start BL).length - 1 = P := by
+    rw [trace_length]; simp
+  rw [getElem_congr_idx rw₀] at hrepeat
+  rw [trace_getElem_recurrence' (P + 1) run_start BL P Ppos (Nat.lt_add_one _)] at hrepeat
+  apply congrArg (undo_next_step BL) at hrepeat
+  rw [next_step_undo_cancel] at hrepeat
+  -- In order to use 'undo_next_step' we need to prove
+  -- that the last cell in the perimeter is "valid"
+  pick_goal 2; pick_goal 3
+  · exact trace_wall_blocked_of_valid (P + 1) run_start BL hvalid _ (List.getElem_mem _)
+  · exact trace_avoids_blocked (P + 1) run_start BL hvalid.1 _ (List.getElem_mem _)
+  unfold endgame_perimeter
+  rw [getElem_congr_coll (trace_take (P + 1) run_start BL P (by norm_num))]
+  rw [List.getElem_take, hrepeat]
+  unfold undo_next_step; simp
+  have huleft : loc (undo_turn_left run_start) ∉ BL := by
+    apply trace_trim_quad1_notmem_of_yneg
+    unfold undo_turn_left run_start loc uvec_up; simp
+  rw [if_neg huleft]
+  unfold undo_turn_left run_start loc uvec_up; simp
