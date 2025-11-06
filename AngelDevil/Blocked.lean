@@ -418,3 +418,12 @@ lemma trace_trim_quad1_mem
   apply list_int_le_max
   rw [List.mem_map]
   use rs, rsmem; rfl
+
+-- If a cell was not in the original blocked list, it also will not
+-- be in the list that results from applying the "quad1" filter.
+lemma trace_trim_quad1_notmem
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
+  ∀ a, a ∉ blocked → a ∉ blocked_trim_quad1 n start blocked top := by
+  intro a amem
+  contrapose! amem
+  exact (List.mem_filter.mp (List.mem_filter.mp amem).1).1
