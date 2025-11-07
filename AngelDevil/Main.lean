@@ -829,15 +829,32 @@ def endgame_perimeter_length {p : Nat} (E : Endgame p) : Nat :=
 def endgame_perimeter {p : Nat} (E : Endgame p) : List RunState :=
   trace (endgame_perimeter_length E) run_start (endgame_blocked E)
 
+lemma endgame_perimeter_length_def {p : Nat} (E : Endgame p) :
+  (endgame_perimeter E).length = endgame_perimeter_length E := by
+  unfold endgame_perimeter
+  rw [trace_length]
+
 lemma endgame_perimeter_length_pos {p : Nat} (E : Endgame p) :
   0 < endgame_perimeter_length E := by
   apply perimeter_length_pos
 
+lemma endgame_perimeter_length_pos' {p : Nat} (E : Endgame p) :
+  0 < (endgame_perimeter E).length := by
+  rw [endgame_perimeter_length_def]
+  exact endgame_perimeter_length_pos E
+
+lemma endgame_perimeter_ne_nil {p : Nat} (E : Endgame p) : endgame_perimeter E ≠ [] := by
+  apply List.ne_nil_of_length_pos
+  exact endgame_perimeter_length_pos' E
+
+lemma endgame_perimeter_getElem_zero {p : Nat} (E : Endgame p) :
+  (endgame_perimeter E)[0]'(endgame_perimeter_length_pos' E) = run_start := by
+  exact trace_getElem_zero_of_nonnil _ _ _ (endgame_perimeter_ne_nil E)
+
 -- Prove that the endpoint of the endgame trace falls within the endgame perimeter
 lemma endgame_endpoint_lt {p : Nat} (E : Endgame p) :
   E.i < (endgame_perimeter E).length := by
-  unfold endgame_perimeter
-  rw [trace_length, endgame_perimeter_length]
+  rw [endgame_perimeter_length_def, endgame_perimeter_length]
   by_contra! lei
   let BL := endgame_blocked E
   let T := trace (E.i + 1) run_start BL
@@ -882,6 +899,9 @@ lemma endgame_endpoint_lb {p : Nat} (E : Endgame p) : (E.n - 1) * p + 1 ≤ E.i 
 def endgame_endpoint {p : Nat} (E : Endgame p) : RunState :=
   (endgame_perimeter E)[E.i]'(endgame_endpoint_lt E)
 
+lemma endgame_endpoint_def {p : Nat} (E : Endgame p) :
+  (endgame_endpoint E) = (endgame_perimeter E)[E.i]'(endgame_endpoint_lt E) := rfl
+
 lemma endgame_endpoint_eq {p : Nat} (E : Endgame p) :
   endgame_endpoint E = E.T.getLast (endgame_trace_ne_nil E) := by
   let BL := (endgame_blocked E)
@@ -889,7 +909,6 @@ lemma endgame_endpoint_eq {p : Nat} (E : Endgame p) :
   have isle : E.i + 1 ≤ (trace P run_start BL).length :=
     Nat.add_one_le_of_lt (endgame_endpoint_lt E)
   have isle' : E.i + 1 ≤ P := by
-    unfold endgame_perimeter at isle
     rwa [trace_length] at isle
   rw [List.getLast_congr _ _ (endgame_trace_eq E)]; swap
   · apply List.ne_nil_of_length_pos
@@ -900,8 +919,7 @@ lemma endgame_endpoint_eq {p : Nat} (E : Endgame p) :
   · apply List.ne_nil_of_length_pos
     rw [List.length_take_of_le isle]
     exact Nat.add_one_pos _
-  rw [List.getLast_eq_getElem, List.getElem_take]
-  unfold endgame_endpoint; congr
+  rw [List.getLast_eq_getElem, List.getElem_take, endgame_endpoint_def]; congr
   rw [List.length_take_of_le isle]; simp
 
 lemma endgame_endpoint_yz {p : Nat} (E : Endgame p) :
@@ -914,13 +932,17 @@ lemma endgame_endpoint_lex {p : Nat} (E : Endgame p) :
   convert E.hsouth.1
   exact endgame_endpoint_eq E
 
+lemma endgame_endpoint_u {p : Nat} (E : Endgame p) :
+  (endgame_endpoint E).u = uvec_down := by
+  convert E.hsouth.2.2
+  exact endgame_endpoint_eq E
+
 -- Prove that the last point in the perimeter has coordinates (-1, -1)
 lemma endgame_southwest_point_eq {p : Nat} (E : Endgame p) :
-  loc ((endgame_perimeter E)[endgame_perimeter_length E - 1]'(by
-    unfold endgame_perimeter
-    rw [trace_length]
+  ((endgame_perimeter E)[endgame_perimeter_length E - 1]'(by
+    rw [endgame_perimeter_length_def]
     apply Nat.sub_one_lt (Nat.ne_zero_of_lt (endgame_perimeter_length_pos E))
-  )) = (-1, -1) := by
+  )) = ⟨-1, -1, uvec_right⟩ := by
   let P := endgame_perimeter_length E
   let BL := endgame_blocked E
   have Ppos : 0 < P := by
@@ -948,54 +970,104 @@ lemma endgame_southwest_point_eq {p : Nat} (E : Endgame p) :
     apply trace_trim_quad1_notmem_of_yneg
     unfold undo_turn_left run_start loc uvec_up; simp
   rw [if_neg huleft]
-  unfold undo_turn_left run_start loc uvec_up; simp
+  unfold undo_turn_left run_start uvec_up uvec_right; simp
 
 -- Prove the bounds check for the southwest point
 -- (which comes immediately after the "endpoint")
 lemma endgame_southeast_point_lt {p : Nat} (E : Endgame p) :
   E.i + 1 < (endgame_perimeter E).length := by
   apply lt_of_le_of_ne (Nat.add_one_le_of_lt (endgame_endpoint_lt E))
-  unfold endgame_perimeter
-  rw [trace_length]
+  rw [endgame_perimeter_length_def]
   by_contra! iseq
   -- If E.i + 1 = P, the endpoint is equal to the southwest point
   -- But this is impossible because the former has x = 0 and the
   -- latter has x = -1
   absurd endgame_endpoint_yz E
-  unfold endgame_endpoint
-  rw [getElem_congr_idx (Nat.eq_sub_of_add_eq iseq)]
-  have rw₀ := (Prod.ext_iff.mp (endgame_southwest_point_eq E)).2
-  unfold loc at rw₀; simp at rw₀
-  rw [rw₀]
-  norm_num
+  rw [endgame_endpoint_def, getElem_congr_idx (Nat.eq_sub_of_add_eq iseq)]
+  rw [(RunState.ext_iff.mp (endgame_southwest_point_eq E)).2.1]; simp
 
 -- Prove that the southeast point has y = -1 and x-coordinate
 -- one greater than the endgame endpoint.
 lemma endgame_southeast_point_eq {p : Nat} (E : Endgame p) :
-  loc ((endgame_perimeter E)[E.i + 1]'(endgame_southeast_point_lt E)) =
-  ((endgame_endpoint E).x + 1, -1) := by
+  ((endgame_perimeter E)[E.i + 1]'(endgame_southeast_point_lt E)) =
+  ⟨(endgame_endpoint E).x + 1, -1, uvec_right⟩ := by
   let P := endgame_perimeter_length E
   let BL := endgame_blocked E
   let T := endgame_perimeter E
+  have hnnil : E.T ≠ [] := endgame_trace_ne_nil E
   unfold endgame_perimeter
   have ilt : E.i < T.length := by
     exact endgame_endpoint_lt E
   have islt : E.i + 1 < endgame_perimeter_length E := by
     convert endgame_southeast_point_lt E
-    unfold endgame_perimeter
-    rw [trace_length]
+    exact (endgame_perimeter_length_def E).symm
   rw [trace_getElem_recurrence _ _ _ _ islt]
   unfold next_step
-  have : loc (turn_left T[E.i]) = ((endgame_endpoint E).x + 1, -1) := by
+  have : turn_left T[E.i] = ⟨(endgame_endpoint E).x + 1, -1, uvec_right⟩ := by
+    have hy : (E.T.getLast hnnil).y = 0 := by
+      convert endgame_endpoint_yz E
+      exact (endgame_endpoint_eq E).symm
+    have hu : (E.T.getLast hnnil).u = uvec_down := by
+      convert endgame_endpoint_u E
+      exact (endgame_endpoint_eq E).symm
     have rw₀ := endgame_endpoint_eq E
-    unfold endgame_endpoint at rw₀; unfold T loc; simp
+    unfold endgame_endpoint at rw₀
     rw [endgame_endpoint_eq E, rw₀]
     unfold turn_left; simp
-    rw [E.hsouth.2.1, E.hsouth.2.2]
-    unfold uvec_down; simp
+    rw [← and_assoc]
+    unfold uvec_down at hu
+    constructor
+    · rw [hu, hy]; simp
+    unfold uvec_right
+    apply UVec.ext
+    · simp; rw [hu]; simp
+    · simp; rw [hu]
   have hleft : loc (turn_left T[E.i]) ∉ endgame_blocked E := by
     apply trace_trim_quad1_notmem_of_yneg
-    rw [this]; simp
+    rw [this, loc]; simp
   unfold T endgame_perimeter at hleft
   rw [if_pos hleft]
   exact this
+
+-- Prove that the second-to-last point in the endgame perimeter
+-- has coordinates (-2, 0)
+lemma endgame_west_point_eq {p : Nat} (E : Endgame p) :
+  ((endgame_perimeter E)[endgame_perimeter_length E - 2]'(by
+    rw [endgame_perimeter_length_def]
+    exact Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
+  )) = ⟨-2, 0, uvec_down⟩ := by
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  have hnnil : (endgame_perimeter E) ≠ [] := by
+    exact endgame_perimeter_ne_nil E
+  have Pnz : P ≠ 0 := Nat.ne_zero_of_lt (endgame_perimeter_length_pos E)
+  have Ppnz : P - 1 ≠ 0 := by
+    by_contra! Ppz
+    absurd endgame_southwest_point_eq E
+    rw [getElem_congr_idx Ppz]
+    rw [endgame_perimeter_getElem_zero]
+    unfold run_start; simp
+  have Pppos : 0 < P - 1 :=
+    Nat.pos_of_ne_zero Ppnz
+  have hvalid := endgame_run_start_valid E
+  have htrace := trace_getElem_recurrence' P run_start BL (P - 1) Pppos (Nat.sub_one_lt Pnz)
+  -- Apply 'undo_next_step' to both side of the recurrence to get the
+  -- second-to-last step in terms of the last step
+  apply congrArg (undo_next_step BL) at htrace
+  rw [next_step_undo_cancel] at htrace
+  pick_goal 2; pick_goal 3
+  · exact trace_wall_blocked_of_valid P run_start BL hvalid _ (List.getElem_mem _)
+  · exact trace_avoids_blocked P run_start BL hvalid.1 _ (List.getElem_mem _)
+  have rw₀ : P - 2 = P - 1 - 1 := by
+    rw [← one_add_one_eq_two, Nat.sub_add_eq]
+  unfold endgame_perimeter
+  rw [getElem_congr_idx rw₀, ← htrace]
+  have rw₁ := endgame_southwest_point_eq E
+  unfold endgame_perimeter at rw₁
+  rw [rw₁]
+  unfold undo_next_step; simp
+  have hleft : loc (undo_turn_left { x := -1, y := -1, u := uvec_right }) ∉ BL := by
+    apply trace_trim_quad1_notmem_of_xneg
+    unfold undo_turn_left loc uvec_right; simp
+  rw [if_neg hleft]
+  unfold undo_turn_left uvec_right uvec_down; simp
