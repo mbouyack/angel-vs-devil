@@ -558,3 +558,95 @@ lemma endgame_north_point_eq {p : Nat} (E : Endgame p) :
   unfold undo_turn_left uvec_down uvec_left; simp
   rw [← Int.natCast_one, ← Int.natCast_add, Nat.sub_one_add_one]
   exact Nat.ne_zero_of_lt (endgame_wall_height_pos E)
+
+-- Function used to search for the east point
+abbrev east_point_fun {p : Nat} (E : Endgame p) : Nat → Prop := fun i ↦
+  ¬((lei : E.i + 2 ≤ i) → (ilt : i < (endgame_perimeter E).length) →
+    move_forward (endgame_perimeter E)[i-1] = (endgame_perimeter E)[i])
+
+-- To be able to search for the east point,
+-- first prove that at least one candidate cell exists
+-- We'll use the last step in the perimeter.
+lemma east_point_candidate_exists {p : Nat} (E : Endgame p) :
+  ∃ i, east_point_fun E i := by
+  let P := endgame_perimeter_length E
+  use P - 1
+  unfold east_point_fun; push_neg
+  use (by
+    -- Prove the upper bound by showing that if it doesn't hold
+    -- then the west point and endpoint are the same!
+    apply Nat.le_sub_one_of_lt
+    have := (Nat.add_one_le_of_lt (endgame_southeast_point_lt E))
+    rw [add_assoc, one_add_one_eq_two, endgame_perimeter_length_def] at this
+    apply lt_of_le_of_ne this
+    intro h
+    absurd endgame_endpoint_lex E; push_neg
+    rw [endgame_endpoint_def E, getElem_congr_idx (Nat.eq_sub_of_add_eq h)]
+    rw [endgame_west_point_eq E]; simp
+  )
+  use (by
+    rw [endgame_perimeter_length_def]
+    exact Nat.sub_one_lt (Nat.ne_zero_of_lt (endgame_perimeter_length_pos E))
+  )
+  have hrw₀ : P - 1 - 1 = P - 2 := by
+    rw [← one_add_one_eq_two, Nat.sub_add_eq]
+  rw [getElem_congr_idx hrw₀]
+  -- Now show that the southwest point isn't the 'move_foward' of the west point
+  rw [endgame_west_point_eq E, endgame_southwest_point_eq E]
+  unfold move_forward uvec_down uvec_right; simp
+
+def endgame_east_point_idx {p : Nat} (E : Endgame p) : Nat :=
+  Nat.find (east_point_candidate_exists E)
+
+-- Prove that the east point index is valid
+lemma endgame_east_point_lt {p : Nat} (E : Endgame p) :
+  endgame_east_point_idx E < (endgame_perimeter E).length := by
+  let i := endgame_east_point_idx E
+  change i < (endgame_perimeter E).length
+  have isat : east_point_fun E i :=
+    Nat.find_spec (east_point_candidate_exists E)
+  unfold east_point_fun at isat
+  push_neg at isat
+  rcases isat with ⟨_, ilt, _⟩
+  exact ilt
+
+-- Prove that the east point comes after the southeast point
+lemma endgame_east_point_lb {p : Nat} (E : Endgame p) :
+  E.i + 2 ≤ endgame_east_point_idx E := by
+  let i := endgame_east_point_idx E
+  have isat : east_point_fun E i :=
+    Nat.find_spec (east_point_candidate_exists E)
+  unfold east_point_fun at isat
+  push_neg at isat
+  rcases isat with ⟨lei, _, _⟩
+  exact lei
+
+-- Prove the location and direction of the "southern border"
+lemma endgame_southern_border {p : Nat} (E : Endgame p)
+  (i : Nat) (ilt : i < endgame_east_point_idx E - (E.i + 1)) :
+  (endgame_perimeter E)[i + (E.i + 1)]'(
+    lt_trans (Nat.add_lt_of_lt_sub ilt) (endgame_east_point_lt E)
+  ) = ⟨(endgame_endpoint E).x + 1 + i, -1, uvec_right⟩ := by
+  have hlt := lt_trans (Nat.add_lt_of_lt_sub ilt) (endgame_east_point_lt E)
+  by_cases iz : i = 0
+  · subst iz
+    rw [getElem_congr_idx (Nat.zero_add _), endgame_southeast_point_eq E]
+    simp
+  rename' iz => inz; push_neg at inz
+  have lei : 1 ≤ i := Nat.one_le_of_lt (Nat.pos_of_ne_zero inz)
+  have := Nat.find_min (east_point_candidate_exists E) (Nat.add_lt_of_lt_sub ilt)
+  unfold east_point_fun at this; push_neg at this
+  rw [← this]; swap
+  · rw [← one_add_one_eq_two, ← add_assoc, add_comm]
+    exact add_le_add_right lei _
+  -- Now that we have rewritten the current cell in term of a previous cell
+  -- use recursion to finish the goal
+  have hrecurse := endgame_southern_border E (i - 1) (lt_trans (Nat.sub_one_lt inz) ilt)
+  have hrw₀ : i - 1 + (E.i + 1) = i + (E.i + 1) - 1 := by
+    rw [← Nat.sub_add_comm lei]
+  rw [← getElem_congr_idx hrw₀]; swap
+  · apply lt_trans (Nat.add_lt_add_right (Nat.sub_one_lt inz) _) hlt
+  rw [hrecurse]
+  unfold move_forward uvec_right; simp
+  rw [Int.natCast_sub lei, add_assoc, Int.natCast_one]
+  rw [Int.sub_add_cancel]
