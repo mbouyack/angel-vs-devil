@@ -39,9 +39,17 @@ structure Endgame (p : Nat) where
     exact Nat.add_one_pos _
   ))
 
--- Produce the final 'blocked' list by taking the last blocked list
--- used in the endgame trace and removing any cells eaten by the devil
--- outside of the first quadrant or higher than the west wall.
+/- Produce the final 'blocked' list by taking the last blocked list
+   used in the endgame trace and removing any cells eaten by the devil
+   outside of the first quadrant or higher than the west wall.
+
+   NOTE: It appears I actually used a later blocked list than I needed to as
+   the basis for endgame blocked list (see the proof of y-coordinate bounds
+   in 'endgame_west_of_wall' as an example). The result is that we have
+   a higher wall than we need and the Devil actually gets a couple free
+   moves at the end, but we've already proven this has no effect on the
+   endgame trace. Also, the extra wall calls will be trimmed anyway so
+   the final proof should be unaffected. -/
 abbrev endgame_blocked {p : Nat} (E : Endgame p) : List (Int × Int) :=
   blocked_trim_quad1 (E.i + 1) run_start (make_block_list E.D p (E.n + 1)) (E.n * p + 1)
 
@@ -353,7 +361,108 @@ lemma endgame_west_point_eq {p : Nat} (E : Endgame p) :
   rw [rw₁]
   unfold undo_next_step; simp
   have hleft : loc (undo_turn_left { x := -1, y := -1, u := uvec_right }) ∉ BL := by
-    apply trace_trim_quad1_notmem_of_xneg
+    apply trace_trim_quad1_notmem_of_xlt
     unfold undo_turn_left loc uvec_right; simp
   rw [if_neg hleft]
   unfold undo_turn_left uvec_right uvec_down; simp
+
+-- Prove the coordinates and direction of all perimeter cells
+-- west of the wall.
+lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
+  (i : Nat) (ilt : i < E.n * p + 1) :
+  (endgame_perimeter E)[endgame_perimeter_length E - 2 - i]'(by
+    rw [endgame_perimeter_length_def, ← Nat.sub_add_eq]
+    apply Nat.sub_lt (endgame_perimeter_length_pos E)
+    exact Nat.lt_add_right i (by norm_num)
+  ) = ⟨-2, i, uvec_down⟩ := by
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  -- If i = 0, we get the west point, which has already been proven
+  by_cases iz : i = 0
+  · subst iz
+    exact endgame_west_point_eq E
+  rename' iz => inz; push_neg at inz
+  have ipos : 0 < i := Nat.pos_of_ne_zero inz
+  have hvalid := endgame_run_start_valid E
+  -- Use recursion to get the previous cell in the west wall
+  -- (though we're working backward, so in some sense the "next" cell?)
+  have hrecurse := endgame_west_of_wall E (i - 1) (lt_of_le_of_lt (Nat.sub_le _ _) ilt)
+  -- Rewriting the list index in 'hrecurse' is more work than you might think!
+  have hrw₀ : endgame_perimeter_length E - 2 - (i - 1) =
+              endgame_perimeter_length E - 1 - i := by
+    rw [Nat.sub_sub_right _ (Nat.one_le_of_lt ipos)]
+    rw [← one_add_one_eq_two, Nat.sub_add_eq, Nat.sub_one_add_one]
+    apply @Nat.ne_zero_of_lt (E.i + 1 - 1)
+    rw [← endgame_perimeter_length_def E]
+    -- We can use the bound for the southeast point to prove this
+    apply Nat.sub_lt_sub_right _ (endgame_southeast_point_lt E)
+    exact Nat.one_le_of_lt (Nat.add_one_pos _)
+  rw [getElem_congr_idx hrw₀] at hrecurse
+  have hpos : 0 < endgame_perimeter_length E - 1 - i := by
+    apply Nat.pos_of_ne_zero
+    contrapose! hrecurse
+    -- If this were true, then the previous step would be
+    -- 'run_start' which is impossible
+    rw [getElem_congr_idx hrecurse, endgame_perimeter_getElem_zero]
+    unfold run_start uvec_up uvec_down; simp
+  have hlt : endgame_perimeter_length E - 1 - i < P := by
+    rw [← Nat.sub_add_eq]
+    apply Nat.sub_lt (endgame_perimeter_length_pos E)
+    rw [add_comm]
+    exact Nat.add_one_pos _
+  -- Get the trace recurrence and apply 'undo_next_step' to both sides
+  have htrace := trace_getElem_recurrence' P run_start BL _ hpos hlt
+  apply congrArg (undo_next_step BL) at htrace
+  rw [next_step_undo_cancel] at htrace
+  pick_goal 2; pick_goal 3
+  · exact trace_wall_blocked_of_valid P run_start BL hvalid _ (List.getElem_mem _)
+  · exact trace_avoids_blocked P run_start BL hvalid.1 _ (List.getElem_mem _)
+  have hrw₁ : P - 2 - i = P - 1 - i - 1 := by
+    rw [← one_add_one_eq_two, Nat.sub_add_eq, Nat.sub_right_comm]
+  unfold endgame_perimeter at *
+  rw [getElem_congr_idx hrw₁, ← htrace, hrecurse]
+  -- Prove that the cell at 'undo_left_turn' is always in the wall
+  have huleft : loc (undo_turn_left { x := -2, y := ↑(i - 1), u := uvec_down }) ∈ BL := by
+    unfold undo_turn_left uvec_down loc; simp
+    apply trace_trim_quad1_mem
+    · -- First, prove that the cell in question was in the wall to begin with
+      unfold make_block_list
+      apply List.mem_union_iff.mpr; right
+      rw [make_run_eaten_length]
+      -- Prove the y-coordinate bounds required to be in the west wall
+      apply west_wall_mem
+      · apply le_trans (Int.neg_ofNat_le_natCast _ 0)
+        rw [Int.ofNat_sub (Nat.one_le_of_lt ipos)]; simp
+      · apply Int.add_le_add_right (Int.ofNat_le.mpr (le_of_lt _)) 1
+        have := Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt
+        rw [Nat.add_one_sub_one] at this
+        apply lt_of_lt_of_le this
+        rw [add_mul, add_mul, add_assoc]
+        exact Nat.le_add_right _ _
+    constructor
+    · simp; linarith
+    constructor
+    · simp
+      rw [← Int.natCast_mul]
+      apply Int.ofNat_le.mpr
+      exact le_trans (Nat.sub_le _ 1) (Nat.le_of_lt_add_one ilt)
+    constructor
+    · simp
+    use run_start
+    let BL' := make_block_list E.D p (E.n + 1)
+    constructor
+    · nth_rw 2 [← trace_getElem_zero_of_nonnil (E.i + 1) run_start BL']
+      · exact List.getElem_mem _
+      · apply List.ne_nil_of_length_pos
+        rw [trace_length]
+        exact Nat.add_one_pos _
+    · unfold run_start uvec_up loc; simp
+  unfold undo_next_step; simp
+  -- Prove that the cell at 'undo_move_forward' is *not* in the wall
+  have huforward : loc (undo_move_forward { x := -2, y := ↑(i - 1), u := uvec_down }) ∉ BL := by
+    apply trace_trim_quad1_notmem_of_xlt
+    unfold undo_move_forward loc uvec_down; simp
+  rw [if_pos huleft, if_neg huforward]
+  unfold undo_move_forward uvec_down; simp
+  rw [Int.natCast_sub (Nat.one_le_of_lt ipos)]
+  simp

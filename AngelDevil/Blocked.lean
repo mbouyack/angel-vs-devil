@@ -446,7 +446,7 @@ lemma trace_trim_quad1_notmem_of_yneg
   simp at this
   exact this.2.1
 
-lemma trace_trim_quad1_notmem_of_xneg
+lemma trace_trim_quad1_notmem_of_xlt
   (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
   ∀ a, a.1 < -1 → a ∉ blocked_trim_quad1 n start blocked top := by
   intro a aylt amem
