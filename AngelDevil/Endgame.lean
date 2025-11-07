@@ -39,19 +39,77 @@ structure Endgame (p : Nat) where
     exact Nat.add_one_pos _
   ))
 
-/- Produce the final 'blocked' list by taking the last blocked list
-   used in the endgame trace and removing any cells eaten by the devil
-   outside of the first quadrant or higher than the west wall.
+-- The west wall turned out to be taller than intended but any
+-- wall tall enough to keep the runner east of the y-axis will work.
+-- As long as we define the endgame blocked list to include the
+-- full height of the wall (above the x-axis) the final argument
+-- should still work.
+def endgame_wall_height {p : Nat} (E : Endgame p) : Nat := ((E.n + 2) * p) + 2
 
-   NOTE: It appears I actually used a later blocked list than I needed to as
-   the basis for endgame blocked list (see the proof of y-coordinate bounds
-   in 'endgame_west_of_wall' as an example). The result is that we have
-   a higher wall than we need and the Devil actually gets a couple free
-   moves at the end, but we've already proven this has no effect on the
-   endgame trace. Also, the extra wall calls will be trimmed anyway so
-   the final proof should be unaffected. -/
-abbrev endgame_blocked {p : Nat} (E : Endgame p) : List (Int × Int) :=
-  blocked_trim_quad1 (E.i + 1) run_start (make_block_list E.D p (E.n + 1)) (E.n * p + 1)
+-- The endgame wall has positive height
+lemma endgame_wall_height_pos {p : Nat} (E : Endgame p) :
+  0 < endgame_wall_height E := by
+  unfold endgame_wall_height
+  norm_num
+
+-- The endgame wall has non-zero height
+lemma endgame_wall_height_ge_one {p : Nat} (E : Endgame p) :
+  1 ≤ endgame_wall_height E := by
+  unfold endgame_wall_height
+  exact Nat.one_le_of_lt (Nat.add_one_pos _)
+
+-- The endgame trace never even touches the top cell of the wall
+lemma endgame_wall_height_lb {p : Nat} (E : Endgame p) :
+  E.n * p + 1 ≤ endgame_wall_height E - 1 := by
+  apply Nat.add_one_le_of_lt
+  unfold endgame_wall_height; simp
+  apply Nat.lt_add_one_of_le
+  rw [add_mul]
+  exact Nat.le_add_right _ _
+
+-- Produce the final 'blocked' list by taking the last blocked list
+-- used in the endgame trace and removing any cells eaten by the devil
+-- outside of the first quadrant or higher than the west wall.
+def endgame_blocked {p : Nat} (E : Endgame p) : List (Int × Int) :=
+  blocked_trim_quad1 (E.i + 1) run_start (make_block_list E.D p (E.n + 1))
+    (endgame_wall_height E - 1)
+
+-- Any cell with x = -1 and positive y-coordinate less than the
+-- height of the endgame wall will be in the endgame blocked list
+lemma endgame_blocked_mem_of_wall_mem {p : Nat} (E : Endgame p) :
+  ∀ i (_ : i < endgame_wall_height E),
+  (-1, (i : Int)) ∈ (endgame_blocked E) := by
+  intro i ilt
+  apply trace_trim_quad1_mem
+  · -- First, prove that the cell in question was in the wall to begin with
+    unfold make_block_list
+    apply List.mem_union_iff.mpr; right
+    rw [make_run_eaten_length]
+    -- Prove the y-coordinate bounds required to be in the west wall
+    apply west_wall_mem
+    · apply le_trans (Int.neg_ofNat_le_natCast _ 0)
+      exact Int.ofNat_le.mpr (Nat.zero_le _)
+    · unfold endgame_wall_height at ilt
+      rw [← one_add_one_eq_two, ← add_assoc] at ilt
+      convert Int.ofNat_le.mpr (Nat.le_of_lt_add_one ilt)
+  constructor
+  · simp
+  constructor
+  · simp
+    convert Int.ofNat_le.mpr (Nat.le_sub_one_of_lt ilt)
+    rw [Int.natCast_sub (endgame_wall_height_ge_one E)]
+    rw [Int.natCast_one]
+  constructor
+  · simp
+  use run_start
+  let BL' := make_block_list E.D p (E.n + 1)
+  constructor
+  · nth_rw 2 [← trace_getElem_zero_of_nonnil (E.i + 1) run_start BL']
+    · exact List.getElem_mem _
+    · apply List.ne_nil_of_length_pos
+      rw [trace_length]
+      exact Nat.add_one_pos _
+  · unfold run_start uvec_up loc; simp
 
 -- Prove that run_start is "valid" under the endgame blocked list
 lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :
@@ -69,7 +127,9 @@ lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :
     exact rsnmem
   · apply trace_trim_quad1_mem _ _ _ _ _ lormem
     unfold run_start left_of_runner uvec_up; simp
-    use (by rw [← Int.natCast_mul]; linarith), run_start
+    constructor
+    · exact endgame_wall_height_ge_one E
+    use run_start
     constructor
     · apply List.mem_of_getElem
       · convert trace_getElem_zero_of_nonnil _ _ _ hnnil
@@ -95,7 +155,7 @@ lemma endgame_trace_eq {p : Nat} (E : Endgame p) :
   have htrace := run_path_eq_trace_of_nice E.D p E.n (E.n + 1) (by simp) E.hnice
   have htake := trace_take RP.length run_start BL (E.i + 1) Eislt
   rw [htrace, ← htake]
-  apply trace_trim_quad1_unchanged (E.i + 1) run_start BL (E.n * p + 1)
+  apply trace_trim_quad1_unchanged (E.i + 1) run_start BL (endgame_wall_height E - 1)
   intro rs rsmem
   have rsmem' : rs ∈ RP := by
     unfold RP
@@ -111,9 +171,10 @@ lemma endgame_trace_eq {p : Nat} (E : Endgame p) :
   constructor
   · exact E.hynonneg rs rsmem''
   constructor
-  · apply Int.lt_add_one_of_le
-    rw [← Int.natCast_mul]
-    exact run_path_y_le E.D p E.n _ rsmem'
+  · rw [← Int.natCast_one, ← Int.natCast_sub (endgame_wall_height_ge_one E)]
+    apply lt_of_lt_of_le _ (Int.ofNat_le.mpr (endgame_wall_height_lb E))
+    rw [Int.natCast_add, Int.natCast_one]
+    exact Int.lt_add_one_of_le (run_path_y_le E.D p E.n rs rsmem')
   · exact E.hwest _ rsmem''
 
 def endgame_perimeter_length {p : Nat} (E : Endgame p) : Nat :=
@@ -369,7 +430,7 @@ lemma endgame_west_point_eq {p : Nat} (E : Endgame p) :
 -- Prove the coordinates and direction of all perimeter cells
 -- west of the wall.
 lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
-  (i : Nat) (ilt : i < E.n * p + 2) :
+  (i : Nat) (ilt : i < endgame_wall_height E) :
   (endgame_perimeter E)[endgame_perimeter_length E - 2 - i]'(by
     rw [endgame_perimeter_length_def, ← Nat.sub_add_eq]
     apply Nat.sub_lt (endgame_perimeter_length_pos E)
@@ -383,8 +444,8 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
     exact endgame_west_point_eq E
   rename' iz => inz; push_neg at inz
   have ipos : 0 < i := Nat.pos_of_ne_zero inz
-  have iplt : i - 1 < E.n * p + 1 := by
-    convert Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt using 1
+  have iplt : i - 1 < endgame_wall_height E - 1 := by
+    exact Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt
   have hvalid := endgame_run_start_valid E
   -- Use recursion to get the previous cell in the west wall
   -- (though we're working backward, so in some sense the "next" cell?)
@@ -426,36 +487,9 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
   -- Prove that the cell at 'undo_left_turn' is always in the wall
   have huleft : loc (undo_turn_left { x := -2, y := ↑(i - 1), u := uvec_down }) ∈ BL := by
     unfold undo_turn_left uvec_down loc; simp
-    apply trace_trim_quad1_mem
-    · -- First, prove that the cell in question was in the wall to begin with
-      unfold make_block_list
-      apply List.mem_union_iff.mpr; right
-      rw [make_run_eaten_length]
-      -- Prove the y-coordinate bounds required to be in the west wall
-      apply west_wall_mem
-      · apply le_trans (Int.neg_ofNat_le_natCast _ 0)
-        rw [Int.ofNat_sub (Nat.one_le_of_lt ipos)]; simp
-      · apply Int.add_le_add_right (Int.ofNat_le.mpr _)
-        apply le_trans (Nat.le_of_lt_add_one iplt)
-        apply Nat.mul_le_mul_right
-        linarith
-    constructor
-    · simp; linarith
-    constructor
-    · simp
-      rw [← Int.natCast_mul]
-      exact Int.ofNat_le.mpr (Nat.le_of_lt_add_one iplt)
-    constructor
-    · simp
-    use run_start
-    let BL' := make_block_list E.D p (E.n + 1)
-    constructor
-    · nth_rw 2 [← trace_getElem_zero_of_nonnil (E.i + 1) run_start BL']
-      · exact List.getElem_mem _
-      · apply List.ne_nil_of_length_pos
-        rw [trace_length]
-        exact Nat.add_one_pos _
-    · unfold run_start uvec_up loc; simp
+    nth_rw 2 [← Int.natCast_one]
+    rw [← Int.natCast_add, Nat.sub_one_add_one inz]
+    exact endgame_blocked_mem_of_wall_mem E i ilt
   unfold undo_next_step; simp
   -- Prove that the cell at 'undo_move_forward' is *not* in the wall
   have huforward : loc (undo_move_forward { x := -2, y := ↑(i - 1), u := uvec_down }) ∉ BL := by
@@ -469,32 +503,37 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
 -- Prove that the index of the north point is less than the
 -- length of the endgame perimeter
 lemma endgame_north_point_lt {p : Nat} (E : Endgame p) :
-  endgame_perimeter_length E - E.n * p - 4 < (endgame_perimeter E).length := by
+  endgame_perimeter_length E - endgame_wall_height E - 2 < (endgame_perimeter E).length := by
   rw [endgame_perimeter_length_def, ← Nat.sub_add_eq]
   exact Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
 
 -- Prove the coordinates and direction of the north point
 lemma endgame_north_point_eq {p : Nat} (E : Endgame p) :
-  (endgame_perimeter E)[endgame_perimeter_length E - E.n * p - 4]'(
-    endgame_north_point_lt E) = ⟨-1, E.n * p + 2, uvec_left⟩ := by
+  (endgame_perimeter E)[endgame_perimeter_length E - endgame_wall_height E - 2]'(
+    endgame_north_point_lt E) = ⟨-1, endgame_wall_height E, uvec_left⟩ := by
   let P := endgame_perimeter_length E
   let BL := endgame_blocked E
   have hvalid := endgame_run_start_valid E
   -- Save the details of the top perimeter cell west of the wall
-  have htw := endgame_west_of_wall E (E.n * p + 1) (Nat.lt_add_one _)
-  have hrw₀ : P - 2 - (E.n * p + 1) = P - 3 - E.n * p := by
-    rw [Nat.sub_add_eq, Nat.sub_right_comm, ← Nat.sub_add_eq _ 2]
+  have ewhpos : 0 < endgame_wall_height E := endgame_wall_height_pos E
+  have htw := endgame_west_of_wall E (endgame_wall_height E - 1) (Nat.sub_lt ewhpos (one_pos))
+  have hrw₀ : P - 2 - (endgame_wall_height E - 1) =
+              P - endgame_wall_height E - 1 := by
+    rw [Nat.sub_right_comm]
+    rw [Nat.sub_sub_right _ (endgame_wall_height_ge_one E)]
+    rw [← one_add_one_eq_two, Nat.sub_add_eq]
+    rw [Nat.sub_right_comm (P + 1), Nat.add_one_sub_one]
   rw [getElem_congr_idx hrw₀] at htw
-  have hpos : 0 < (P - 3 - E.n * p) := by
+  have hpos : 0 < (P - endgame_wall_height E - 1) := by
     apply Nat.pos_of_ne_zero
     contrapose! htw
     -- If 'htw' is true, the top-most perimeter cell west of the wall
     -- would be equal to 'run_start', which is obviously false.
     rw [getElem_congr_idx htw, endgame_perimeter_getElem_zero]
     unfold run_start uvec_up uvec_down; simp
-  have hlt : (P - 3 - E.n * p) < P := by
+  have hlt : (P - endgame_wall_height E - 1) < P := by
     rw [← Nat.sub_add_eq]
-    apply Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
+    exact Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
   -- Get the trace recurrence and apply 'undo_next_step' to both sides
   have htrace := trace_getElem_recurrence' P run_start BL _ hpos hlt
   apply congrArg (undo_next_step BL) at htrace
@@ -504,15 +543,18 @@ lemma endgame_north_point_eq {p : Nat} (E : Endgame p) :
   pick_goal 2; pick_goal 3
   · exact trace_wall_blocked_of_valid P run_start BL hvalid _ (List.getElem_mem _)
   · exact trace_avoids_blocked P run_start BL hvalid.1 _ (List.getElem_mem _)
-  have hrw₀ : P - E.n * p - 4 = P - 3 - E.n * p - 1 := by
-    rw [Nat.sub_right_comm _ 3, ← Nat.sub_add_eq _ 3 1]
-  rw [getElem_congr_idx hrw₀, ← htrace]
+  have hrw₁ : P - endgame_wall_height E - 2 = P - endgame_wall_height E - 1 -1 := by
+    rw [← one_add_one_eq_two, Nat.sub_add_eq]
+  rw [getElem_congr_idx hrw₁, ← htrace]
   unfold undo_next_step; simp
   -- Show that undoing a left turn starting at the top-most
   -- west-of-wall cell gives a cell that isn't in the wall
-  have huleft : loc (undo_turn_left { x := -2, y := ↑E.n * ↑p + 1, u := uvec_down }) ∉ BL := by
+  have huleft : loc (undo_turn_left { x := -2, y := ↑(endgame_wall_height E - 1), u := uvec_down }) ∉ BL := by
     apply trace_trim_quad1_notmem_of_lty
     unfold loc undo_turn_left uvec_down; simp
+    rw [Int.natCast_sub (endgame_wall_height_ge_one E)]
+    simp
   rw [if_neg huleft]
   unfold undo_turn_left uvec_down uvec_left; simp
-  rw [add_assoc, one_add_one_eq_two]
+  rw [← Int.natCast_one, ← Int.natCast_add, Nat.sub_one_add_one]
+  exact Nat.ne_zero_of_lt (endgame_wall_height_pos E)
