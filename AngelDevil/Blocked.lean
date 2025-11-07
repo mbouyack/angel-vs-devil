@@ -453,3 +453,12 @@ lemma trace_trim_quad1_notmem_of_xlt
   absurd aylt; push_neg
   have := (List.mem_filter.mp (List.mem_filter.mp amem).1).2; simp at this
   exact this.2.2.1
+
+lemma trace_trim_quad1_notmem_of_lty
+  (n : Nat) (start : RunState) (blocked : List (Int × Int)) (top : Int) :
+  ∀ a, top < a.2 → a ∉ blocked_trim_quad1 n start blocked top := by
+  intro a ltay amem
+  absurd ltay; push_neg
+  have := (List.mem_filter.mp (List.mem_filter.mp amem).1).2
+  simp at this
+  exact this.1

@@ -369,7 +369,7 @@ lemma endgame_west_point_eq {p : Nat} (E : Endgame p) :
 -- Prove the coordinates and direction of all perimeter cells
 -- west of the wall.
 lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
-  (i : Nat) (ilt : i < E.n * p + 1) :
+  (i : Nat) (ilt : i < E.n * p + 2) :
   (endgame_perimeter E)[endgame_perimeter_length E - 2 - i]'(by
     rw [endgame_perimeter_length_def, ← Nat.sub_add_eq]
     apply Nat.sub_lt (endgame_perimeter_length_pos E)
@@ -383,6 +383,8 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
     exact endgame_west_point_eq E
   rename' iz => inz; push_neg at inz
   have ipos : 0 < i := Nat.pos_of_ne_zero inz
+  have iplt : i - 1 < E.n * p + 1 := by
+    convert Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt using 1
   have hvalid := endgame_run_start_valid E
   -- Use recursion to get the previous cell in the west wall
   -- (though we're working backward, so in some sense the "next" cell?)
@@ -433,19 +435,16 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
       apply west_wall_mem
       · apply le_trans (Int.neg_ofNat_le_natCast _ 0)
         rw [Int.ofNat_sub (Nat.one_le_of_lt ipos)]; simp
-      · apply Int.add_le_add_right (Int.ofNat_le.mpr (le_of_lt _)) 1
-        have := Nat.sub_lt_sub_right (Nat.one_le_of_lt ipos) ilt
-        rw [Nat.add_one_sub_one] at this
-        apply lt_of_lt_of_le this
-        rw [add_mul, add_mul, add_assoc]
-        exact Nat.le_add_right _ _
+      · apply Int.add_le_add_right (Int.ofNat_le.mpr _)
+        apply le_trans (Nat.le_of_lt_add_one iplt)
+        apply Nat.mul_le_mul_right
+        linarith
     constructor
     · simp; linarith
     constructor
     · simp
       rw [← Int.natCast_mul]
-      apply Int.ofNat_le.mpr
-      exact le_trans (Nat.sub_le _ 1) (Nat.le_of_lt_add_one ilt)
+      exact Int.ofNat_le.mpr (Nat.le_of_lt_add_one iplt)
     constructor
     · simp
     use run_start
@@ -466,3 +465,54 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
   unfold undo_move_forward uvec_down; simp
   rw [Int.natCast_sub (Nat.one_le_of_lt ipos)]
   simp
+
+-- Prove that the index of the north point is less than the
+-- length of the endgame perimeter
+lemma endgame_north_point_lt {p : Nat} (E : Endgame p) :
+  endgame_perimeter_length E - E.n * p - 4 < (endgame_perimeter E).length := by
+  rw [endgame_perimeter_length_def, ← Nat.sub_add_eq]
+  exact Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
+
+-- Prove the coordinates and direction of the north point
+lemma endgame_north_point_eq {p : Nat} (E : Endgame p) :
+  (endgame_perimeter E)[endgame_perimeter_length E - E.n * p - 4]'(
+    endgame_north_point_lt E) = ⟨-1, E.n * p + 2, uvec_left⟩ := by
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  have hvalid := endgame_run_start_valid E
+  -- Save the details of the top perimeter cell west of the wall
+  have htw := endgame_west_of_wall E (E.n * p + 1) (Nat.lt_add_one _)
+  have hrw₀ : P - 2 - (E.n * p + 1) = P - 3 - E.n * p := by
+    rw [Nat.sub_add_eq, Nat.sub_right_comm, ← Nat.sub_add_eq _ 2]
+  rw [getElem_congr_idx hrw₀] at htw
+  have hpos : 0 < (P - 3 - E.n * p) := by
+    apply Nat.pos_of_ne_zero
+    contrapose! htw
+    -- If 'htw' is true, the top-most perimeter cell west of the wall
+    -- would be equal to 'run_start', which is obviously false.
+    rw [getElem_congr_idx htw, endgame_perimeter_getElem_zero]
+    unfold run_start uvec_up uvec_down; simp
+  have hlt : (P - 3 - E.n * p) < P := by
+    rw [← Nat.sub_add_eq]
+    apply Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
+  -- Get the trace recurrence and apply 'undo_next_step' to both sides
+  have htrace := trace_getElem_recurrence' P run_start BL _ hpos hlt
+  apply congrArg (undo_next_step BL) at htrace
+  unfold endgame_perimeter at *
+  rw [htw] at htrace
+  rw [next_step_undo_cancel] at htrace
+  pick_goal 2; pick_goal 3
+  · exact trace_wall_blocked_of_valid P run_start BL hvalid _ (List.getElem_mem _)
+  · exact trace_avoids_blocked P run_start BL hvalid.1 _ (List.getElem_mem _)
+  have hrw₀ : P - E.n * p - 4 = P - 3 - E.n * p - 1 := by
+    rw [Nat.sub_right_comm _ 3, ← Nat.sub_add_eq _ 3 1]
+  rw [getElem_congr_idx hrw₀, ← htrace]
+  unfold undo_next_step; simp
+  -- Show that undoing a left turn starting at the top-most
+  -- west-of-wall cell gives a cell that isn't in the wall
+  have huleft : loc (undo_turn_left { x := -2, y := ↑E.n * ↑p + 1, u := uvec_down }) ∉ BL := by
+    apply trace_trim_quad1_notmem_of_lty
+    unfold loc undo_turn_left uvec_down; simp
+  rw [if_neg huleft]
+  unfold undo_turn_left uvec_down uvec_left; simp
+  rw [add_assoc, one_add_one_eq_two]
