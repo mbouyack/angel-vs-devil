@@ -802,7 +802,7 @@ lemma endgame_east_point_lt_north_point {p : Nat} (E : Endgame p) :
   have hlt₂ : i < P - endgame_wall_height E - 1 := by
     -- If this were true, the east point would be west of the wall,
     -- but all those points have x = -2 and the east point has 2 ≤ x
-    -- The part of the proof isn't nearly as complicated as it looks,
+    -- This part of the proof isn't nearly as complicated as it looks,
     -- but rearranging all the subtraction to get the result we need
     -- requires a bounds check at every step!
     by_contra! h
