@@ -621,6 +621,11 @@ lemma endgame_east_point_lb {p : Nat} (E : Endgame p) :
   rcases isat with ⟨lei, _, _⟩
   exact lei
 
+lemma endgame_east_point_pos {p : Nat} (E : Endgame p) :
+  0 < endgame_east_point_idx E := by
+  apply lt_of_lt_of_le _ (endgame_east_point_lb E)
+  exact Nat.add_one_pos _
+
 -- Prove the location and direction of the "southern border"
 lemma endgame_southern_border {p : Nat} (E : Endgame p)
   (i : Nat) (ilt : i < endgame_east_point_idx E - (E.i + 1)) :
@@ -650,3 +655,95 @@ lemma endgame_southern_border {p : Nat} (E : Endgame p)
   unfold move_forward uvec_right; simp
   rw [Int.natCast_sub lei, add_assoc, Int.natCast_one]
   rw [Int.sub_add_cancel]
+
+lemma endgame_east_point_of_turn_left {p : Nat} (E : Endgame p) :
+  (endgame_perimeter E)[endgame_east_point_idx E]'(endgame_east_point_lt E) =
+  turn_left ((endgame_perimeter E)[endgame_east_point_idx E - 1]'(by
+    apply lt_trans (Nat.sub_one_lt _) (endgame_east_point_lt E)
+    exact Nat.ne_zero_of_lt (endgame_east_point_pos E)
+  )) := by
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  let i := endgame_east_point_idx E
+  have ipos : 0 < i := endgame_east_point_pos E
+  have ilt : i < endgame_perimeter_length E := by
+    rw [← endgame_perimeter_length_def]
+    exact endgame_east_point_lt E
+  let j := i - (E.i + 1)
+  have jnz : j ≠ 0 := by
+    apply Nat.sub_ne_zero_of_lt
+    apply Nat.lt_of_add_one_le
+    rw [add_assoc, one_add_one_eq_two]
+    exact endgame_east_point_lb E
+  have := endgame_southern_border E (j - 1) (Nat.sub_one_lt jnz)
+  have hrw₀ : j - 1 + (E.i + 1) = endgame_east_point_idx E - 1 := by
+    unfold j
+    rw [Nat.sub_right_comm, Nat.sub_add_cancel]
+    apply Nat.le_sub_of_add_le
+    exact endgame_east_point_lb E
+  rw [getElem_congr_idx hrw₀] at this
+  have htrace := trace_getElem_recurrence' P run_start BL i ipos ilt
+  unfold endgame_perimeter at *
+  unfold next_step at htrace
+  split_ifs at htrace with h₀ h₁
+  · -- There cannot be a blocked cell in front of the runner because it is at y = -1
+    absurd h₁
+    rw [this]
+    apply trace_trim_quad1_notmem_of_yneg
+    unfold move_forward loc uvec_right; simp
+  · -- We cannot move forward from the previous cell, otherwise the
+    -- east point would be part of the "southern border" instead
+    have isat : east_point_fun E i :=
+      Nat.find_spec (east_point_candidate_exists E)
+    unfold east_point_fun at isat; push_neg at isat
+    rcases isat with ⟨_, _, h⟩
+    exact False.elim (h.symm htrace)
+  · -- That leaves a left turn as the only possibility
+    exact htrace
+
+-- The x-coordinate of the east point is at least 2
+lemma endgame_east_point_lex {p : Nat} (E : Endgame p) :
+  2 ≤ ((endgame_perimeter E)[endgame_east_point_idx E]'(endgame_east_point_lt E)).x := by
+  rw [endgame_east_point_of_turn_left E]
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  let i := endgame_east_point_idx E
+  let j := i - (E.i + 1)
+  have jnz : j ≠ 0 := by
+    apply Nat.sub_ne_zero_of_lt
+    apply Nat.lt_of_add_one_le
+    rw [add_assoc, one_add_one_eq_two]
+    exact endgame_east_point_lb E
+  have := endgame_southern_border E (j - 1) (Nat.sub_one_lt jnz)
+  have hrw₀ : j - 1 + (E.i + 1) = endgame_east_point_idx E - 1 := by
+    unfold j
+    rw [Nat.sub_right_comm, Nat.sub_add_cancel]
+    apply Nat.le_sub_of_add_le
+    exact endgame_east_point_lb E
+  rw [getElem_congr_idx hrw₀] at this
+  rw [this]
+  unfold turn_left uvec_right; simp
+  linarith [endgame_endpoint_lex E]
+
+-- The y-coordinate of the east point is zero
+lemma endgame_east_point_yz {p : Nat} (E : Endgame p) :
+  ((endgame_perimeter E)[endgame_east_point_idx E]'(endgame_east_point_lt E)).y = 0 := by
+  rw [endgame_east_point_of_turn_left E]
+  let P := endgame_perimeter_length E
+  let BL := endgame_blocked E
+  let i := endgame_east_point_idx E
+  let j := i - (E.i + 1)
+  have jnz : j ≠ 0 := by
+    apply Nat.sub_ne_zero_of_lt
+    apply Nat.lt_of_add_one_le
+    rw [add_assoc, one_add_one_eq_two]
+    exact endgame_east_point_lb E
+  have := endgame_southern_border E (j - 1) (Nat.sub_one_lt jnz)
+  have hrw₀ : j - 1 + (E.i + 1) = endgame_east_point_idx E - 1 := by
+    unfold j
+    rw [Nat.sub_right_comm, Nat.sub_add_cancel]
+    apply Nat.le_sub_of_add_le
+    exact endgame_east_point_lb E
+  rw [getElem_congr_idx hrw₀] at this
+  rw [this]
+  unfold turn_left uvec_right; simp
