@@ -251,6 +251,12 @@ lemma endgame_endpoint_lb {p : Nat} (E : Endgame p) : (E.n - 1) * p + 1 ≤ E.i 
   rw [add_comm, mul_comm]
   exact run_path_length_lb E.D p (E.n - 1)
 
+-- The index of the endpoint is positive
+lemma endgame_endpoint_pos {p : Nat} (E : Endgame p) : 0 < E.i := by
+  apply Nat.lt_of_add_one_le; simp
+  apply le_trans _ E.hlb
+  exact Nat.one_le_of_lt (run_path_length_pos _ _ _)
+
 def endgame_endpoint {p : Nat} (E : Endgame p) : RunState :=
   (endgame_perimeter E)[E.i]'(endgame_endpoint_lt E)
 
@@ -500,16 +506,23 @@ lemma endgame_west_of_wall {p : Nat} (E : Endgame p)
   rw [Int.natCast_sub (Nat.one_le_of_lt ipos)]
   simp
 
+def endgame_north_point_idx {p : Nat} (E : Endgame p) : Nat :=
+  endgame_perimeter_length E - endgame_wall_height E - 2
+
+lemma endgame_north_point_idx_def {p : Nat} (E : Endgame p) :
+  endgame_north_point_idx E = endgame_perimeter_length E - endgame_wall_height E - 2 := rfl
+
 -- Prove that the index of the north point is less than the
 -- length of the endgame perimeter
 lemma endgame_north_point_lt {p : Nat} (E : Endgame p) :
-  endgame_perimeter_length E - endgame_wall_height E - 2 < (endgame_perimeter E).length := by
+  endgame_north_point_idx E < (endgame_perimeter E).length := by
+  unfold endgame_north_point_idx
   rw [endgame_perimeter_length_def, ← Nat.sub_add_eq]
   exact Nat.sub_lt (endgame_perimeter_length_pos E) (by norm_num)
 
 -- Prove the coordinates and direction of the north point
 lemma endgame_north_point_eq {p : Nat} (E : Endgame p) :
-  (endgame_perimeter E)[endgame_perimeter_length E - endgame_wall_height E - 2]'(
+  (endgame_perimeter E)[endgame_north_point_idx E]'(
     endgame_north_point_lt E) = ⟨-1, endgame_wall_height E, uvec_left⟩ := by
   let P := endgame_perimeter_length E
   let BL := endgame_blocked E
@@ -545,6 +558,7 @@ lemma endgame_north_point_eq {p : Nat} (E : Endgame p) :
   · exact trace_avoids_blocked P run_start BL hvalid.1 _ (List.getElem_mem _)
   have hrw₁ : P - endgame_wall_height E - 2 = P - endgame_wall_height E - 1 -1 := by
     rw [← one_add_one_eq_two, Nat.sub_add_eq]
+  unfold endgame_north_point_idx
   rw [getElem_congr_idx hrw₁, ← htrace]
   unfold undo_next_step; simp
   -- Show that undoing a left turn starting at the top-most
@@ -747,3 +761,84 @@ lemma endgame_east_point_yz {p : Nat} (E : Endgame p) :
   rw [getElem_congr_idx hrw₀] at this
   rw [this]
   unfold turn_left uvec_right; simp
+
+-- To complete our accounting of the perimeter we need to show that
+-- the east point comes before the north point.
+lemma endgame_east_point_lt_north_point {p : Nat} (E : Endgame p) :
+  endgame_east_point_idx E < endgame_north_point_idx E := by
+  let P := endgame_perimeter_length E
+  let W := endgame_wall_height E
+  let i := endgame_east_point_idx E
+  have hlt₀ := endgame_east_point_lt E
+  have lex := endgame_east_point_lex E
+  have ltP : 1 < P := by
+    unfold P
+    rw [← endgame_perimeter_length_def]
+    apply lt_trans _ (endgame_southeast_point_lt E)
+    exact Nat.lt_add_left_iff_pos.mpr (endgame_endpoint_pos E)
+  rw [endgame_perimeter_length_def] at hlt₀
+  -- First prove it is not the south west point
+  have ine : i ≠ P - 1 := by
+    by_contra! h
+    unfold i at h
+    absurd lex; push_neg
+    rw [getElem_congr_idx h, endgame_southwest_point_eq E]
+    simp
+  have hlt₁ := lt_of_le_of_ne (Nat.le_sub_one_of_lt hlt₀) ine
+  -- We'll need this for the algebra below
+  have hnz : P - W - 1 ≠ 0 := by
+    -- If this were true, the north point would be the same as 'run_start'
+    by_contra! h
+    have whplt : W - 1 < W :=
+      Nat.sub_one_lt (Nat.ne_zero_of_lt (endgame_wall_height_pos E))
+    absurd endgame_west_of_wall E (W - 1) whplt
+    have hrw : P - 2 - (W - 1) = 0 := by
+      rw [Nat.sub_sub_right _ (endgame_wall_height_ge_one E)]
+      rw [← one_add_one_eq_two, Nat.sub_add_eq]
+      rw [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt ltP)]
+      rwa [Nat.sub_right_comm]
+    rw [getElem_congr_idx hrw, endgame_perimeter_getElem_zero]
+    unfold run_start; simp
+  have hlt₂ : i < P - endgame_wall_height E - 1 := by
+    -- If this were true, the east point would be west of the wall,
+    -- but all those points have x = -2 and the east point has 2 ≤ x
+    -- The part of the proof isn't nearly as complicated as it looks,
+    -- but rearranging all the subtraction to get the result we need
+    -- requires a bounds check at every step!
+    by_contra! h
+    have hlt₃ : P - 2 - i < endgame_wall_height E := by
+      apply Nat.sub_lt_right_of_lt_add
+      · exact Nat.le_sub_one_of_lt hlt₁
+      rw [add_comm]
+      apply (Nat.sub_lt_sub_iff_right _).mp
+      · rw [Nat.add_sub_cancel, Nat.sub_right_comm]
+        rw [← one_add_one_eq_two, Nat.sub_add_eq]
+        exact Nat.sub_one_lt_of_le (Nat.pos_of_ne_zero hnz) h
+      · rw [← one_add_one_eq_two, Nat.sub_add_eq]
+        apply Nat.le_sub_one_of_lt
+        rw [Nat.sub_right_comm] at hnz
+        exact Nat.lt_of_sub_ne_zero hnz
+    have := endgame_west_of_wall E (P - 2 - i) hlt₃
+    have hle : 2 + i ≤ P := by
+      rw [add_comm]
+      apply Nat.add_one_le_of_lt
+      unfold P at *
+      rw [← endgame_perimeter_length_def] at *
+      apply lt_of_le_of_ne (Nat.add_one_le_of_lt (endgame_east_point_lt E))
+      contrapose! ine
+      rw [← ine, Nat.add_sub_cancel]
+    have hrw : P - 2 - (P - 2 - i) = i := by
+      rw [← Nat.sub_add_eq _ _ i, Nat.sub_sub_right _ hle]
+      rw [← add_assoc, Nat.sub_add_cancel (Nat.add_one_le_of_lt ltP)]
+      rw [Nat.sub_add_comm (le_refl _), Nat.sub_self, zero_add]
+    rw [getElem_congr_idx hrw] at this
+    absurd endgame_east_point_lex E
+    rw [this]; simp
+  apply Nat.le_sub_one_of_lt at hlt₂
+  rw [← Nat.sub_add_eq, one_add_one_eq_two] at hlt₂
+  apply Nat.lt_of_le_of_ne hlt₂
+  -- And lastly, we just need to prove the east point is not the north point
+  by_contra! h
+  absurd endgame_east_point_lex E
+  rw [getElem_congr_idx (Eq.trans h (endgame_north_point_idx_def E).symm)]
+  rw [endgame_north_point_eq]; simp
