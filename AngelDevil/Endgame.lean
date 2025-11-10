@@ -1,6 +1,7 @@
 import AngelDevil.Runner
 import AngelDevil.Blocked
 import AngelDevil.Perimeter
+import AngelDevil.Segment
 
 set_option linter.style.longLine false
 
@@ -762,6 +763,18 @@ lemma endgame_east_point_yz {p : Nat} (E : Endgame p) :
   rw [this]
   unfold turn_left uvec_right; simp
 
+-- The north point has positive index
+lemma endgame_north_point_pos {p : Nat} (E : Endgame p) :
+  0 < endgame_north_point_idx E := by
+  apply Nat.pos_of_ne_zero
+  intro h
+  absurd endgame_north_point_eq E
+  -- Proof by contradiction:
+  -- If the north point were found at index 0, it would be 'run_start'
+  -- But 'run_start' has x = 0 and the north point has x = -1
+  rw [getElem_congr_idx h, endgame_perimeter_getElem_zero]
+  unfold run_start; simp
+
 -- To complete our accounting of the perimeter we need to show that
 -- the east point comes before the north point.
 lemma endgame_east_point_lt_north_point {p : Nat} (E : Endgame p) :
@@ -786,19 +799,11 @@ lemma endgame_east_point_lt_north_point {p : Nat} (E : Endgame p) :
     simp
   have hlt₁ := lt_of_le_of_ne (Nat.le_sub_one_of_lt hlt₀) ine
   -- We'll need this for the algebra below
-  have hnz : P - W - 1 ≠ 0 := by
-    -- If this were true, the north point would be the same as 'run_start'
-    by_contra! h
-    have whplt : W - 1 < W :=
-      Nat.sub_one_lt (Nat.ne_zero_of_lt (endgame_wall_height_pos E))
-    absurd endgame_west_of_wall E (W - 1) whplt
-    have hrw : P - 2 - (W - 1) = 0 := by
-      rw [Nat.sub_sub_right _ (endgame_wall_height_ge_one E)]
-      rw [← one_add_one_eq_two, Nat.sub_add_eq]
-      rw [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt ltP)]
-      rwa [Nat.sub_right_comm]
-    rw [getElem_congr_idx hrw, endgame_perimeter_getElem_zero]
-    unfold run_start; simp
+  have hnz : P - W - 1 ≠ 0 :=
+    -- We've already proven that the north point index is positive
+    -- so the point just after that on the perimeter must have
+    -- positive index also.
+    Nat.ne_zero_of_lt (lt_of_lt_of_le (endgame_north_point_pos E) (Nat.sub_le_succ_sub _ _))
   have hlt₂ : i < P - endgame_wall_height E - 1 := by
     -- If this were true, the east point would be west of the wall,
     -- but all those points have x = -2 and the east point has 2 ≤ x
@@ -842,3 +847,106 @@ lemma endgame_east_point_lt_north_point {p : Nat} (E : Endgame p) :
   absurd endgame_east_point_lex E
   rw [getElem_congr_idx (Eq.trans h (endgame_north_point_idx_def E).symm)]
   rw [endgame_north_point_eq]; simp
+
+-- Define the segment joining the east point to the north point
+def endgame_segment_east_to_north {p : Nat} (E : Endgame p) : TraceSegment where
+  n := (endgame_perimeter E).length
+  start := run_start
+  blocked := endgame_blocked E
+  i := endgame_east_point_idx E
+  j := endgame_north_point_idx E
+  ile := le_of_lt (endgame_east_point_lt_north_point E)
+  jlt := (trace_length _ _ _) ▸ endgame_north_point_lt E
+
+lemma endgame_segment_east_to_north_length {p : Nat} (E : Endgame p) :
+  segment_length (endgame_segment_east_to_north E) =
+  endgame_north_point_idx E - endgame_east_point_idx E + 1 := rfl
+
+lemma endgame_segment_east_to_north_start_lex {p : Nat} (E : Endgame p) :
+  2 ≤ (segment_start (endgame_segment_east_to_north E)).x := by
+  unfold endgame_segment_east_to_north segment_start segment_trace; simp
+  convert endgame_east_point_lex E
+  rw [endgame_perimeter_length_def]; rfl
+
+lemma endgame_segment_east_to_north_start_yz {p : Nat} (E : Endgame p) :
+  (segment_start (endgame_segment_east_to_north E)).y = 0 := by
+  unfold endgame_segment_east_to_north segment_start segment_trace; simp
+  convert endgame_east_point_yz E
+  rw [endgame_perimeter_length_def]; rfl
+
+lemma endgame_segment_east_to_north_end {p : Nat} (E : Endgame p) :
+  segment_end (endgame_segment_east_to_north E) =
+  ⟨-1, endgame_wall_height E, uvec_left⟩ := by
+  unfold endgame_segment_east_to_north segment_end segment_trace; simp
+  convert endgame_north_point_eq E
+  rw [endgame_perimeter_length_def]; rfl
+
+-- Prove a lower bound on the length of the perimeter
+/- The original paper gives 'a ≥ 2t - 1' as the number of
+   painted walls up to and including the step which returns to
+   the x-axis, and l ≥ a + 2N + 5 as the total number of walls
+   in perimeter (where 'N' is the height of the west wall).
+   The five walls corresponding to the "+5" are:
+    1) the wall next to the southeast point
+    2) two horizontal walls passed in traveling back to the positive y-axis
+    3) the wall next to the north point
+    4) the wall next to the southwest point
+  Combining the above expressions gives the bound 'l ≥ 2t + 4 + 2N'
+  while substituting p = 2 in the proof below gives 'l ≥ 2t + 5 + 2N'
+  That is, the bound we prove is actually greater by 1 than the
+  original paper. Why the difference?
+
+  It turns out that the bound in the original paper is based on
+  each sprint painting at least p*n walls, which is true but
+  doesn't account for the extra wall painted in the first sprint.
+  The bound we proved in 'endgame_endpoint_lb' *does* take this
+  extra step into account though it doesn't appear to at first
+  glance (stated as "(E.n - 1) * p + 1 ≤ E.i"). That's because
+  the right-hand side of that bound refers to the index of the
+  endpoint, not the number of painted walls (with the latter
+  being one larger than the former).
+
+  Obviously there's nothing wrong with having a *tigher* lower
+  bound, but it was deeply unsatisfying to be off-by-one from
+  the original paper without understanding why!
+-/
+lemma endgame_perimeter_length_lb {p : Nat} (E : Endgame p) :
+  p * (E.n - 1) + 7 + 2 * (endgame_wall_height E) ≤ endgame_perimeter_length E := by
+  -- We need this inequality to subtract 'wall_height + 2' from both sides
+  have hle : endgame_wall_height E + 2 ≤ endgame_perimeter_length E := by
+    apply Nat.add_one_le_of_lt
+    apply Nat.lt_of_sub_pos
+    rw [Nat.sub_add_eq]
+    exact lt_of_lt_of_le (endgame_north_point_pos E) (Nat.sub_le_succ_sub _ _)
+  apply (Nat.sub_le_sub_iff_right hle).mp
+  rw [Nat.sub_add_eq _ _ 2, Nat.sub_add_eq _ (endgame_wall_height E) 2]
+  -- Now the right-hand side matches the index of the north point
+  change _ ≤ endgame_north_point_idx E
+  rw [two_mul, ← add_assoc, Nat.add_sub_cancel]
+  rw [← add_assoc _ 6 1, Nat.add_right_comm _ 6 1]
+  rw [Nat.add_right_comm, mul_comm]; simp
+  rw [add_assoc]
+  apply le_trans (Nat.add_le_add_right (endgame_endpoint_lb E) _)
+  rw [← two_add_two_eq_four, ← add_assoc _ 2 2, add_comm _ 2]
+  rw [← add_assoc]
+  apply le_trans (Nat.add_le_add_right (endgame_east_point_lb E) _)
+  -- Now that we've rewritten the left-hand side in term of the east point,
+  -- rearrange the expression so the right-hand side can be rewritten as
+  -- 'segment_length (endgame_segment_east_to_north E)'
+  apply Nat.add_le_of_le_sub' (le_of_lt (endgame_east_point_lt_north_point E))
+  apply Nat.add_one_le_add_one_iff.mp
+  rw [add_assoc, two_add_one_eq_three]
+  rw [← endgame_segment_east_to_north_length E]
+  -- Now we can apply the segment length lower bound (proven in Segment.lean)
+  apply le_trans _ (segment_length_lb _)
+  unfold manhattan loc; simp
+  rw [(RunState.ext_iff.mp (endgame_segment_east_to_north_end E)).1]
+  rw [(RunState.ext_iff.mp (endgame_segment_east_to_north_end E)).2.1]
+  rw [(endgame_segment_east_to_north_start_yz E), add_comm]; simp
+  rw [← Int.natAbs_neg]; simp
+  apply Int.ofNat_le.mp
+  have hlex := endgame_segment_east_to_north_start_lex E
+  rw [Int.natAbs_of_nonneg]
+  · simp
+    linarith
+  · linarith
