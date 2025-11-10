@@ -40,12 +40,26 @@ structure Endgame (p : Nat) where
     exact Nat.add_one_pos _
   ))
 
+-- The index of the endpoint is positive
+lemma endgame_endpoint_pos {p : Nat} (E : Endgame p) : 0 < E.i := by
+  apply Nat.lt_of_add_one_le; simp
+  apply le_trans _ E.hlb
+  exact Nat.one_le_of_lt (run_path_length_pos _ _ _)
+
+-- The endgame has a positive number of sprints
+lemma endgame_sprints_pos {p : Nat} (E : Endgame p) : 0 < E.n := by
+  by_contra! h
+  have nz := Nat.le_zero.mp h
+  absurd nz ▸ E.hlt; push_neg
+  rw [run_path_of_length_zero, List.length_singleton]
+  exact Nat.one_le_of_lt (endgame_endpoint_pos E)
+
 -- The west wall turned out to be taller than intended but any
 -- wall tall enough to keep the runner east of the y-axis will work.
 -- As long as we define the endgame blocked list to include the
 -- full height of the wall (above the x-axis) the final argument
 -- should still work.
-def endgame_wall_height {p : Nat} (E : Endgame p) : Nat := ((E.n + 2) * p) + 2
+def endgame_wall_height {p : Nat} (E : Endgame p) : Nat := (E.n * p) + 2
 
 -- The endgame wall has positive height
 lemma endgame_wall_height_pos {p : Nat} (E : Endgame p) :
@@ -62,17 +76,13 @@ lemma endgame_wall_height_ge_one {p : Nat} (E : Endgame p) :
 -- The endgame trace never even touches the top cell of the wall
 lemma endgame_wall_height_lb {p : Nat} (E : Endgame p) :
   E.n * p + 1 ≤ endgame_wall_height E - 1 := by
-  apply Nat.add_one_le_of_lt
   unfold endgame_wall_height; simp
-  apply Nat.lt_add_one_of_le
-  rw [add_mul]
-  exact Nat.le_add_right _ _
 
 -- Produce the final 'blocked' list by taking the last blocked list
 -- used in the endgame trace and removing any cells eaten by the devil
 -- outside of the first quadrant or higher than the west wall.
 def endgame_blocked {p : Nat} (E : Endgame p) : List (Int × Int) :=
-  blocked_trim_quad1 (E.i + 1) run_start (make_block_list E.D p (E.n + 1))
+  blocked_trim_quad1 (E.i + 1) run_start (make_block_list E.D p (E.n - 1))
     (endgame_wall_height E - 1)
 
 -- Any cell with x = -1 and positive y-coordinate less than the
@@ -93,6 +103,8 @@ lemma endgame_blocked_mem_of_wall_mem {p : Nat} (E : Endgame p) :
     · unfold endgame_wall_height at ilt
       rw [← one_add_one_eq_two, ← add_assoc] at ilt
       convert Int.ofNat_le.mpr (Nat.le_of_lt_add_one ilt)
+      rw [Int.natCast_add, Int.natCast_one]; congr
+      exact Nat.sub_one_add_one (Nat.ne_zero_of_lt (endgame_sprints_pos E))
   constructor
   · simp
   constructor
@@ -103,7 +115,7 @@ lemma endgame_blocked_mem_of_wall_mem {p : Nat} (E : Endgame p) :
   constructor
   · simp
   use run_start
-  let BL' := make_block_list E.D p (E.n + 1)
+  let BL' := make_block_list E.D p (E.n - 1)
   constructor
   · nth_rw 2 [← trace_getElem_zero_of_nonnil (E.i + 1) run_start BL']
     · exact List.getElem_mem _
@@ -116,8 +128,8 @@ lemma endgame_blocked_mem_of_wall_mem {p : Nat} (E : Endgame p) :
 lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :
   run_start_valid (endgame_blocked E) run_start := by
   unfold run_start_valid
-  let ⟨rsnmem, lormem⟩ := run_start_valid_of_nice E.D p E.hnice (E.n + 1)
-  let BL := make_block_list E.D p (E.n + 1)
+  let ⟨rsnmem, lormem⟩ := run_start_valid_of_nice E.D p E.hnice (E.n - 1)
+  let BL := make_block_list E.D p (E.n - 1)
   let T := trace (E.i + 1) run_start BL
   have tlpos : 0 < T.length := by
     rw [trace_length]
@@ -149,11 +161,11 @@ lemma endgame_trace_ne_nil {p : Nat} (E : Endgame p) : E.T ≠ [] := by
 -- starting at 'run_start' and using the endgame blocked list
 lemma endgame_trace_eq {p : Nat} (E : Endgame p) :
   E.T = trace (E.i + 1) run_start (endgame_blocked E) := by
-  let BL := make_block_list E.D p (E.n + 1)
+  let BL := make_block_list E.D p (E.n - 1)
   let RP := RunPath E.D p E.n
   rw [E.hpath]
   have Eislt := Nat.add_one_le_of_lt E.hlt
-  have htrace := run_path_eq_trace_of_nice E.D p E.n (E.n + 1) (by simp) E.hnice
+  have htrace := run_path_eq_trace_of_nice E.D p E.n (E.n - 1) (by simp) E.hnice
   have htake := trace_take RP.length run_start BL (E.i + 1) Eislt
   rw [htrace, ← htake]
   apply trace_trim_quad1_unchanged (E.i + 1) run_start BL (endgame_wall_height E - 1)
@@ -251,12 +263,6 @@ lemma endgame_endpoint_lb {p : Nat} (E : Endgame p) : (E.n - 1) * p + 1 ≤ E.i 
   apply le_trans _ E.hlb
   rw [add_comm, mul_comm]
   exact run_path_length_lb E.D p (E.n - 1)
-
--- The index of the endpoint is positive
-lemma endgame_endpoint_pos {p : Nat} (E : Endgame p) : 0 < E.i := by
-  apply Nat.lt_of_add_one_le; simp
-  apply le_trans _ E.hlb
-  exact Nat.one_le_of_lt (run_path_length_pos _ _ _)
 
 def endgame_endpoint {p : Nat} (E : Endgame p) : RunState :=
   (endgame_perimeter E)[E.i]'(endgame_endpoint_lt E)

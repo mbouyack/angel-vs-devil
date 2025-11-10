@@ -1387,7 +1387,7 @@ lemma run_path_not_eaten_of_nice (D : Devil) (p n : Nat) (hnice : nice D p) :
 -- Note that the block list used for the trace doesn't have to be the
 -- last one used in the run path. Any later block list will also work.
 -- The theorem is stated in this way because it allows us to recurse.
-lemma run_path_eq_trace_of_nice (D : Devil) (p m n : Nat) (mle : m ≤ n - 1) (hnice : nice D p) :
+lemma run_path_eq_trace_of_nice (D : Devil) (p m n : Nat) (mple : m - 1 ≤ n) (hnice : nice D p) :
   RunPath D p m =
   trace (RunPath D p m).length run_start (make_block_list D p n) := by
   -- Later in the argument we'll need to assume 0 < p,
@@ -1439,7 +1439,7 @@ lemma run_path_eq_trace_of_nice (D : Devil) (p m n : Nat) (mle : m ≤ n - 1) (h
     · exact run_path_length_non_decreasing _ _ _ mpos
     rw [run_path_eq_trace_of_nice, trace_length]; swap
     · assumption
-    exact le_trans (Nat.sub_le m 1) mle
+    exact le_trans (Nat.sub_le (m - 1) 1) mple
   -- If the step indicated by 'k' doesn't fall in the last sprint, we can recurse
   by_cases klt' : k < (RunPath D p (m - 1)).length
   · exact hrecurse k klt'
@@ -1463,9 +1463,6 @@ lemma run_path_eq_trace_of_nice (D : Devil) (p m n : Nat) (mle : m ≤ n - 1) (h
   -- Rewrite the last sprint as a raw sprint so we can eventually
   -- represent it as an equivalent trace.
   rw [getElem_congr_coll hlast]
-  have npos : 0 < n := lt_of_lt_of_le mpos (le_trans mle (Nat.sub_le _ _))
-  have mple : m - 1 ≤ n :=
-    le_of_lt (lt_trans (Nat.sub_one_lt mnz) (Nat.lt_of_le_sub_one npos mle))
   -- Some useful abbreviations
   let fsmp := final_state (make_run D p (m - 1))
   let BL := make_block_list D p (m - 1)
@@ -1592,7 +1589,7 @@ lemma run_path_intersects_xaxis_of_south (D : Devil) (p n : Nat) (hnice : nice D
   ∃ (i : Nat) (ilt : i < j), 0 ≤ (RunPath D p n)[i].x ∧ (RunPath D p n)[i].y = 0 ∧
   ((RunPath D p n)[i].u = uvec_down ∨ (RunPath D p n)[i].u = uvec_left) := by
   intro j jlt rpjneg
-  let BL := make_block_list D p (n + 1)
+  let BL := make_block_list D p (n - 1)
   let L := (RunPath D p n).length
   let T := trace (j + 1) run_start BL
   have hnnil : T ≠ [] := by
@@ -1600,7 +1597,7 @@ lemma run_path_intersects_xaxis_of_south (D : Devil) (p n : Nat) (hnice : nice D
     rw [trace_length]
     exact Nat.add_one_pos _
   -- Rewrite the run path as a trace
-  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have htrace := run_path_eq_trace_of_nice D p n (n - 1) (le_refl _) hnice
   -- Define two points on the trace, rs₀ and rs₁, so we can use the intermediate value theorem
   let rs₀ := T[j]'(by
       rw [trace_length]
@@ -1733,7 +1730,7 @@ lemma run_path_xaxis_west_has_earlier_xaxis_south (D : Devil) (p n : Nat) (hnice
   0 ≤ (RunPath D p n)[j].x ∧ (RunPath D p n)[j].y = 0 ∧ (RunPath D p n)[j].u = uvec_left →
   ∃ i, ∃ (ilt : i < j), south_facing_yz_xnn ((RunPath D p n)[i]'(lt_trans ilt jlt)) := by
   intro j jlt ⟨hjxpos, hjyz, hjuleft⟩
-  let BL := make_block_list D p (n + 1)
+  let BL := make_block_list D p (n - 1)
   let L := (RunPath D p n).length
   let T := trace (j + 1) run_start BL
   have Lpos : 0 < L := run_path_length_pos D p n
@@ -1763,7 +1760,7 @@ lemma run_path_xaxis_west_has_earlier_xaxis_south (D : Devil) (p n : Nat) (hnice
   have j'le : j' ≤ j := by
     exact Fin.le_iff_val_le_val.mp (find_first_is_first f ⟨j, jlt⟩ ⟨hjxpos, hjyz, hjuleft⟩)
   -- Rewrite the run path as a trace
-  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have htrace := run_path_eq_trace_of_nice D p n (n - 1) (le_refl _) hnice
   have j'nz : j' ≠ 0 := by
     intro j'z
     absurd hj'uleft; push_neg
@@ -1779,7 +1776,7 @@ lemma run_path_xaxis_west_has_earlier_xaxis_south (D : Devil) (p n : Nat) (hnice
   have j'plt : j' - 1 < L :=
     lt_trans (Nat.sub_lt j'pos Nat.zero_lt_one) j'lt
   let rs := (trace L run_start BL)[j' - 1]'(by rwa [trace_length])
-  have hvalid := run_start_valid_of_nice D p hnice (n + 1)
+  have hvalid := run_start_valid_of_nice D p hnice (n - 1)
   -- In order to use 'undo_next_step' we need to show that the
   -- wall next to 'rs' is in-fact a wall.
   have hblocked : left_of_runner rs ∈ BL :=
@@ -1865,11 +1862,11 @@ lemma run_path_start_repeats_has_earlier_sfyzxnn (D : Devil) (p n : Nat) (hnice 
   ∀ i (ilt : i < (RunPath D p n).length), i ≠ 0 → (RunPath D p n)[i] = run_start →
   ∃ j, ∃ (jlt : j < i), south_facing_yz_xnn ((RunPath D p n)[j]'(lt_trans jlt ilt)) := by
   intro i ilt inz hTi
-  let BL := make_block_list D p (n + 1)
+  let BL := make_block_list D p (n - 1)
   let L := (RunPath D p n).length
   let T := trace L run_start BL
   -- Prove the run path and trace are equivalent
-  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have htrace := run_path_eq_trace_of_nice D p n (n - 1) (le_refl _) hnice
   have Lpos : 0 < L :=
     lt_of_le_of_lt (Nat.zero_le _) ilt
   have hnnil : T ≠ [] := by
@@ -1878,7 +1875,7 @@ lemma run_path_start_repeats_has_earlier_sfyzxnn (D : Devil) (p n : Nat) (hnice 
   have ilt' : i < T.length := by
     unfold T
     rwa [← htrace]
-  have hvalid := run_start_valid_of_nice D p hnice (n + 1)
+  have hvalid := run_start_valid_of_nice D p hnice (n - 1)
   --have hdupes' : list_has_dupes T := by rwa [htrace] at hdupes
   -- As previously proven, the first repeated state is 'run_start', so T[i] = run_start
   --have hTi : T[i] = run_start := trace_start_is_first_dupe L run_start BL hdupes' hvalid
@@ -1947,7 +1944,7 @@ lemma run_path_start_repeats_has_earlier_sfyzxnn (D : Devil) (p n : Nat) (hnice 
 lemma run_path_sfyzxnn_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D p) :
   list_has_dupes (RunPath D p n) → ∃ rs ∈ (RunPath D p n), south_facing_yz_xnn rs := by
   intro hdupes
-  let BL := make_block_list D p (n + 1)
+  let BL := make_block_list D p (n - 1)
   let L := (RunPath D p n).length
   let T := trace L run_start BL
   have Lpos : 0 < L := run_path_length_pos D p n
@@ -1955,8 +1952,8 @@ lemma run_path_sfyzxnn_of_path_loops (D : Devil) (p n : Nat) (hnice : nice D p) 
     apply List.ne_nil_of_length_pos
     rwa [trace_length]
   -- Prove the run path and trace are equivalent
-  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
-  have hvalid := run_start_valid_of_nice D p hnice (n + 1)
+  have htrace := run_path_eq_trace_of_nice D p n (n - 1) (le_refl _) hnice
+  have hvalid := run_start_valid_of_nice D p hnice (n - 1)
   let i := (find_first_dupe T hnnil).1
   have ilt : i < T.length := Fin.prop _
   have ilt' : i < L := by rwa [trace_length] at ilt
@@ -1978,10 +1975,10 @@ lemma run_path_first_dupe_is_run_start
   (D : Devil) (p n : Nat) (hnice : nice D p) (hdupe : list_has_dupes (RunPath D p n)) :
   (RunPath D p n)[find_first_dupe (RunPath D p n) (list_ne_nil_of_has_dupes _ hdupe)] = run_start := by
   -- Rewrite the run path as a trace and use 'trace_start_is_first_dupe'
-  let BL := make_block_list D p (n + 1)
+  let BL := make_block_list D p (n - 1)
   let L := (RunPath D p n).length
   let T := trace L run_start BL
-  have htrace := run_path_eq_trace_of_nice D p n (n + 1) (by rw [Nat.add_one_sub_one]) hnice
+  have htrace := run_path_eq_trace_of_nice D p n (n - 1) (le_refl _) hnice
   have hdupe' : list_has_dupes T := by
     unfold T
     rwa [← htrace]
@@ -1989,5 +1986,5 @@ lemma run_path_first_dupe_is_run_start
   let i := (find_first_dupe T hnnil).1
   have ilt : i < T.length := Fin.prop _
   rw [getElem_congr_coll htrace]
-  have hvalid := run_start_valid_of_nice _ _ hnice (n + 1)
+  have hvalid := run_start_valid_of_nice _ _ hnice (n - 1)
   convert trace_start_is_first_dupe L run_start BL hdupe' hvalid
