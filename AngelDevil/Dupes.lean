@@ -431,3 +431,42 @@ lemma first_dupe_gt_iff_no_dupes_take
     -- (which is also the location of a duplicate)
     apply lt_of_le_of_lt _ blt'
     exact first_dupe_is_first L hdupe a b alt (lt_of_lt_of_le blt' nle) hab
+
+-- If every element in L₁ is also in L₂ and L₁
+-- has no duplicates, then L₁.length ≤ L₂.length
+lemma list_nodupes_length_le_of_sublist
+  {α : Type} [DecidableEq α] (L₁ L₂ : List α)
+  (hnd : list_nodupes L₁) (hss : L₁ ⊆ L₂) :
+  L₁.length ≤ L₂.length :=
+  match L₂ with
+  | []      => by
+    rw [List.length_nil]
+    by_contra! h
+    rcases List.exists_mem_of_length_pos h with ⟨a, amem⟩
+    exact (List.mem_nil_iff a).mp (hss amem)
+  | a :: xs => by
+    rw [List.length_cons]
+    by_cases amem : a ∉ L₁
+    · have hss' : L₁ ⊆ xs := by
+        intro b bmem
+        rcases List.mem_cons.mp (hss bmem) with lhs | rhs
+        · subst lhs
+          exact False.elim (amem bmem)
+        · assumption
+      apply le_trans _ (Nat.le_add_right _ 1)
+      exact list_nodupes_length_le_of_sublist _ _ hnd hss'
+    push_neg at amem
+    have L₁lpos: 0 < L₁.length :=
+      List.length_pos_of_mem amem
+    have onele := (Nat.zero_add _) ▸ (Nat.add_one_le_add_one_iff.mpr (Nat.zero_le xs.length))
+    apply (Nat.sub_le_sub_iff_right onele).mp
+    rw [Nat.add_one_sub_one]
+    rw [← List.length_erase_of_mem amem]
+    have hss' : (L₁.erase a) ⊆ xs := by
+      intro b bmem
+      rcases List.mem_cons.mp (hss (List.mem_of_mem_erase bmem)) with lhs | rhs
+      · subst lhs
+        exact False.elim (list_nodupes_not_mem_erase_of_nodupes L₁ hnd b bmem)
+      · assumption
+    have hnd' := list_nodupes_erase_of_nodupes _ hnd a
+    exact list_nodupes_length_le_of_sublist _ _ hnd' hss'
