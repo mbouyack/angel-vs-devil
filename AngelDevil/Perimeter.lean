@@ -633,3 +633,37 @@ lemma trace_start_repeats_idx
     exact hjN.symm
   rw [getElem_congr_idx hTl]
   exact trace_start_is_first_dupe N start blocked hdupe hvalid
+
+-- The perimeter length is no greater than 2 * blocked.length + 2
+lemma trace_perimeter_length_le_edges_card
+  (start : RunState) (blocked : List (Int × Int))
+  (hvalid : run_start_valid blocked start) :
+  perimeter_length start blocked hvalid ≤ 2 * blocked.length + 2 := by
+  apply le_trans _ (region_edges_le blocked _ hvalid.2)
+  let P := perimeter_length start blocked hvalid
+  let T := trace P start blocked
+  let S := @Finset.univ (Fin P) _
+  let E := get_edges (Region blocked (left_of_runner start))
+  change P ≤ E.card
+  have hcard : S.card = P := Eq.trans Finset.card_univ (Fintype.card_fin P)
+  rw [← hcard]
+  -- Define an injective function that maps from the indices of the
+  -- perimeter trace to the edges in 'E'
+  let f : Fin P → Edge := fun i ↦ edge_of_runner (T[i]'(by rw [trace_length]; exact i.2))
+  have hmaps : Set.MapsTo f S E := by
+    intro i _
+    exact edge_of_runner_mem_region_edges P start blocked hvalid _ (List.getElem_mem _)
+  apply Finset.card_le_card_of_injOn f hmaps
+  intro i _ j _ h
+  unfold f at h
+  replace h := edge_of_runner_inj h
+  have hnd : list_nodupes T := trace_perimeter_has_no_dupes _ _ _
+  apply (Fin.val_eq_val _ _).mp
+  by_cases iltj : i.val < j.val
+  · have jlt : j < T.length := by rw [trace_length]; exact j.2
+    exact False.elim (hnd i j iltj jlt h)
+  rename' iltj => jlei; push_neg at jlei
+  by_contra! inej
+  have jlti := lt_of_le_of_ne jlei inej.symm
+  have ilt : i < T.length := by rw [trace_length]; exact i.2
+  exact False.elim (hnd j i jlti ilt h.symm)
