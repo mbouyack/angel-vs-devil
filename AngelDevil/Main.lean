@@ -729,3 +729,38 @@ def endgame_of_nice_devil_wins
     rw [List.length_take_of_le (Nat.add_one_le_of_lt ilt)]
     rw [Nat.add_one_sub_one]
     rfl
+
+theorem the_angel_of_power_two_wins : ¬∃ (D : Devil), devil_wins D 2 := by
+  -- Proof by contradiction:
+  -- Assume a devil exists which catches the angel of power 2
+  by_contra h
+  -- If the devil wins, so does the nice devil
+  -- Let 'D' be a nice devil that wins
+  rcases nice_devil_wins_of_devil_wins 2 h with ⟨D, hnice, hwins⟩
+  -- If the nice devil wins, we can construct an 'Endgame 2'
+  let E := endgame_of_nice_devil_wins D 2 (Nat.two_pos) hnice hwins
+  -- Note that the endgame perimeter trace starting cell is "valid"
+  -- That is, it (0, 0) is unblocked and (-1, 0) *is* blocked
+  have hvalid := endgame_run_start_valid E
+  -- Combine the lower and upper bounds for the length of the perimeter
+  -- (proven in Endgame.lean and Perimeter.lean respectively).
+  -- The former is based on the sum of the minimum distances between six
+  -- key points around the perimeter. The latter is determined by the
+  -- relationship between the number of cells in a region and the number
+  -- of edges around its perimeter.
+  absurd le_trans
+    (endgame_perimeter_length_lb E)
+    (trace_perimeter_length_le_edges_card run_start (endgame_blocked E) hvalid)
+  push_neg
+  -- To form the final list of blocked cells we removed all the cells with
+  -- x < -1, y < 0, or y > W - 1 (where 'W' is the height of the west wall)
+  -- Apply the upper bound we calculated for the length of that list.
+  apply lt_of_le_of_lt (Nat.add_le_add_right (Nat.mul_le_mul_left 2 (endgame_blocked_le E)) 2)
+  -- Now simplify to achieve a contradiction
+  rw [mul_add, add_comm _ (2 * endgame_wall_height E), Nat.mul_sub]
+  rw [mul_one, ← add_assoc, ← Nat.add_sub_assoc]; swap
+  · simp; exact Nat.one_le_of_lt (endgame_sprints_pos E)
+  rw [← Nat.sub_add_comm]; swap
+  · apply le_trans _ (Nat.le_add_right _ _)
+    apply le_of_eq_of_le _ (Nat.mul_le_mul_left 2 (Nat.one_le_of_lt (endgame_wall_height_pos E))); simp
+  apply Nat.add_lt_add_left; norm_num
