@@ -54,6 +54,18 @@ lemma endgame_sprints_pos {p : Nat} (E : Endgame p) : 0 < E.n := by
   rw [run_path_of_length_zero, List.length_singleton]
   exact Nat.one_le_of_lt (endgame_endpoint_pos E)
 
+-- If an 'Endgame p' exists, p ≠ 0
+lemma endgame_p_pos {p : Nat} (E : Endgame p) : 0 < p := by
+  by_contra! h
+  have ilt := E.hlt
+  have pz := Nat.le_zero.mp h
+  subst pz
+  rw [run_path_pzero, List.length_singleton] at ilt
+  have iz := Nat.le_zero.mp (Nat.le_of_lt_add_one ilt)
+  absurd E.hlb; push_neg
+  rw [iz]
+  exact run_path_length_pos E.D 0 (E.n - 1)
+
 -- The west wall turned out to be taller than intended but any
 -- wall tall enough to keep the runner east of the y-axis will work.
 -- As long as we define the endgame blocked list to include the
@@ -123,6 +135,119 @@ lemma endgame_blocked_mem_of_wall_mem {p : Nat} (E : Endgame p) :
       rw [trace_length]
       exact Nat.add_one_pos _
   · unfold run_start uvec_up loc; simp
+
+-- Prove an upper bound for the length of the endgame blocked list
+lemma endgame_blocked_le {p : Nat} (E : Endgame p) :
+  (endgame_blocked E).length ≤ endgame_wall_height E + E.n := by
+  let BL := make_block_list E.D p (E.n - 1)
+  let T := trace (E.i + 1) run_start BL
+  have ppos := endgame_p_pos E
+  have nnz : E.n ≠ 0 := Nat.ne_zero_of_lt (endgame_sprints_pos E)
+  have Tlpos : 0 < T.length := by
+    rw [trace_length]
+    exact Nat.add_one_pos _
+  have hnnil : T ≠ [] := List.ne_nil_of_length_pos Tlpos
+  have whlb : 2 < endgame_wall_height E := by
+    unfold endgame_wall_height; simp
+    exact ⟨endgame_sprints_pos E, ppos⟩
+  -- Rewrite the right-hand side to match the two sets of cells removed by the filters
+  rw [← Nat.add_sub_cancel (endgame_wall_height E + E.n) (endgame_wall_height E - 3 + 1)]
+  nth_rw 1 [← two_add_one_eq_three, Nat.sub_add_eq _ 2 1]
+  nth_rw 1 [Nat.sub_one_add_one (Nat.sub_ne_zero_of_lt whlb)]
+  rw [← Nat.add_sub_assoc (le_of_lt whlb), add_right_comm, ← two_mul]
+  rw [Nat.sub_add_eq]
+  apply list_filter_length_ub_of_comp_lb_of_ub
+  · -- Prove at least one cell was removed by the 'blocked_trim_neg_one' filter
+    apply Nat.one_le_of_lt (@List.length_pos_of_mem (Int × Int) (-1, -1) _ _)
+    apply List.mem_filter.mpr
+    constructor
+    · apply List.mem_filter.mpr
+      constructor
+      · -- Show that (-1, -1) was in the original blocked list
+        apply List.mem_union_iff.mpr; right
+        apply west_wall_mem
+        · apply Int.neg_le_neg
+          rw [← Int.natCast_one]
+          apply Int.ofNat_le.mpr (Nat.one_le_of_lt ((Nat.mul_pos_iff_of_pos_right ppos).mpr _))
+          have nnz : E.n ≠ 0 := Nat.ne_zero_of_lt (endgame_sprints_pos E)
+          rw [make_run_eaten_length, Nat.sub_one_add_one nnz]
+          exact endgame_sprints_pos E
+        · apply le_trans (by change -1 ≤ 1; norm_num)
+          exact Int.le_add_of_nonneg_left (Int.zero_le_ofNat _)
+      · -- Prove that '-1' isn't the maximum x value by giving
+        -- 'run_start' as a counter-example
+        simp
+        apply Int.le_add_of_sub_right_le
+        apply le_trans (by show -1 - 1 ≤ 0; norm_num) (list_int_le_max _ 0 _)
+        apply List.mem_map.mpr
+        use run_start
+        constructor
+        · nth_rw 2 [← trace_getElem_zero_of_nonnil _ _ _ hnnil]
+          exact List.getElem_mem _
+        · unfold run_start; simp
+    · simp
+  apply list_filter_length_ub_of_comp_lb_of_ub
+  · -- Let 'L' be the list of all cells that will be removed from
+    -- the blocked list by 'blocked_trim_rect'. Don't forget, the
+    -- wall is significantly shorter on the negative side than on
+    -- the positive side (hence the "-3")
+    let L : List (Int × Int) :=
+      List.map (fun a ↦ (-1, -2 - ↑a)) (List.range (endgame_wall_height E - 3))
+    have Ll : L.length = endgame_wall_height E - 3 := by
+      unfold L
+      rw [List.length_map, List.length_range]
+    rw [← Ll]
+    apply list_nodupes_length_le_of_sublist
+    · -- Prove that 'L' has no duplicates
+      by_contra! h
+      rw [list_not_nodupes] at h
+      rcases h with ⟨i, j, ilt, jlt, hij⟩
+      unfold L at hij; simp at hij
+      exact ne_of_lt ilt hij
+    · -- Prove that 'L' is a sublist
+      intro a amem
+      unfold L at amem
+      rcases List.mem_map.mp amem with ⟨b, bmem, rfl⟩
+      have blt := List.mem_range.mp bmem
+      apply List.mem_filter_of_mem
+      · apply List.mem_union_iff.mpr; right
+        apply west_wall_mem
+        · rw [make_run_eaten_length, Nat.sub_one_add_one nnz]
+          apply Int.le_sub_left_of_add_le
+          rw [Int.add_neg_eq_sub]
+          apply Int.sub_left_le_of_le_add
+          -- Ideally we wouldn't unfold 'endgame_wall_height'
+          -- but I think we're done adjusting that value
+          unfold endgame_wall_height at blt; simp at blt
+          convert Int.ofNat_le.mpr (Nat.le_sub_one_of_lt blt)
+          rw [Int.add_neg_eq_sub, Int.natCast_sub (Nat.one_le_of_lt blt)]
+          rw [Int.natCast_sub (Nat.one_le_of_lt (lt_of_lt_of_le blt (Nat.sub_le _ _)))]
+          rw [← one_add_one_eq_two, ← Int.sub_sub]; simp
+        · apply le_trans _ (Int.le_add_of_nonneg_right (by show 0 ≤ 1; norm_num))
+          apply le_trans _ (Int.zero_le_ofNat _)
+          norm_num
+      · simp; right; left
+        apply lt_of_lt_of_le (by change -1 < 0; norm_num)
+        exact Int.zero_le_ofNat _
+  · --have : make_block_list E.D p (E.n - 1) = make_block_list E.D p (E.n - 1) := rfl
+    --nth_rw 2 [make_block_list] at this
+    let L₁ := (make_run E.D p (E.n - 1)).eaten
+    let L₂ := west_wall p (make_run E.D p (E.n - 1)).eaten.length
+    have happl : (L₁ ++ L₂).length = 2 * endgame_wall_height E + E.n - 2 := by
+      rw [List.length_append]; unfold L₁ L₂ west_wall endgame_wall_height
+      rw [make_run_eaten_length, List.length_map, List.length_range]
+      rw [Nat.sub_one_add_one (Nat.ne_zero_of_lt (endgame_sprints_pos E))]
+      rw [mul_add, ← mul_assoc, add_right_comm _ (2 * 2)]; simp
+      rw [add_comm _ E.n, add_assoc, one_add_one_eq_two, ← add_assoc]
+    rw [← happl]
+    unfold make_block_list
+    change (L₁.union L₂).length ≤ _
+    change (L₁ ∪ L₂).length ≤ _
+    apply List.Sublist.length_le
+    -- For some reason, forming a list union with "List.union" seems to not
+    -- actually be equal to the same union formed with '∪'. Fortunately
+    -- convert is magic and makes it work somehow ("exact" and "apply" both fail)
+    convert List.union_sublist_append L₁ L₂
 
 -- Prove that run_start is "valid" under the endgame blocked list
 lemma endgame_run_start_valid {p : Nat} (E : Endgame p) :

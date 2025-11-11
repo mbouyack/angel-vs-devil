@@ -462,3 +462,15 @@ lemma trace_trim_quad1_notmem_of_lty
   have := (List.mem_filter.mp (List.mem_filter.mp amem).1).2
   simp at this
   exact this.1
+
+-- Proves an upper bound on the length of a filtered list
+-- based on a lower bound for its complement and an upper bound
+-- for the original list. This will be used to prove an upper
+-- bound on the endgame blocked list.
+lemma list_filter_length_ub_of_comp_lb_of_ub
+  {blocked : List (Int × Int)} {f : (Int × Int) → Bool} {m n : Nat}
+  (hlb : m ≤ (List.filter (fun a ↦ !f a) blocked).length) (hub : blocked.length ≤ n) :
+  (List.filter f blocked).length ≤ n - m := by
+  apply Nat.le_sub_of_add_le
+  apply le_trans (Nat.add_le_add_left hlb _)
+  rwa [← List.length_eq_length_filter_add]
