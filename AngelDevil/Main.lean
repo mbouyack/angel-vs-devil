@@ -740,7 +740,7 @@ theorem the_angel_of_power_two_wins : ¬∃ (D : Devil), devil_wins D 2 := by
   -- If the nice devil wins, we can construct an 'Endgame 2'
   let E := endgame_of_nice_devil_wins D 2 (Nat.two_pos) hnice hwins
   -- Note that the endgame perimeter trace starting cell is "valid"
-  -- That is, it (0, 0) is unblocked and (-1, 0) *is* blocked
+  -- That is, (0, 0) is unblocked and (-1, 0) *is* blocked
   have hvalid := endgame_run_start_valid E
   -- Combine the lower and upper bounds for the length of the perimeter
   -- (proven in Endgame.lean and Perimeter.lean respectively).
