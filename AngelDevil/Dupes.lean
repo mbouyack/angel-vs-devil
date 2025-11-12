@@ -1,6 +1,7 @@
 import Mathlib.Tactic.NormNum.Core
 import Mathlib.Data.List.Basic
-import AngelDevil.Util
+import Mathlib.Data.Fin.Basic
+import Mathlib.Data.Nat.Find
 
 set_option linter.style.longLine false
 
@@ -342,29 +343,45 @@ lemma list_rm_dupes_length_le {α : Type} [DecidableEq α] (L : List α) :
     · rw [List.length_cons]
       exact Nat.add_le_add_right (list_rm_dupes_length_le xs) _
 
-abbrev list_has_dupe_fin {α : Type} [DecidableEq α] (L : List α) : Fin L.length → Prop :=
-  fun i ↦ list_has_dupes (L.take (i.val + 1))
-
--- Any duplicate in L will satisfy 'list_has_dupe_fin'
-lemma list_has_dupe_fin_of_dupe {α : Type} [DecidableEq α] (L : List α) :
-  ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
-  list_has_dupe_fin L (Fin.mk j jlt) := by
-  intro i j ilt jlt hij
-  use i, j, ilt, (by
-    rw [List.length_take_of_le (Nat.add_one_le_of_lt jlt)]
-    exact Nat.lt_add_one _
-  )
-  rwa [List.getElem_take, List.getElem_take]
-
 -- A list with duplicates is non-empty
 lemma list_ne_nil_of_has_dupes
   {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) : L ≠ [] := by
   rcases hdupe with ⟨_, _, ilt, jlt, _⟩
   exact List.ne_nil_of_length_pos (lt_of_le_of_lt (Nat.zero_le _) jlt)
 
+-- Note that this will return true for the last element
+-- since 'find_first_dupe' assumes at least one dupe exists
+abbrev first_dupe_helper {α : Type} [DecidableEq α] (L : List α) : Nat → Prop :=
+  fun i ↦ (ilt : i < L.length - 1) → list_has_dupes (L.take (i + 1))
+
+-- If some element repeats in L, 'first_dupe_helper' will identify it as a dupe
+lemma first_dupe_helper_of_dupe {α : Type} [DecidableEq α] (L : List α) :
+  ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
+  first_dupe_helper L j := by
+  intro i j ilt jlt hij
+  intro jlt'
+  use i, j, ilt
+  use by rw [List.length_take_of_le (Nat.add_one_le_of_lt jlt)]; exact Nat.lt_add_one _
+  rwa [List.getElem_take, List.getElem_take]
+
+-- L.length - 1 satisfies 'first_dupe_helper'
+lemma first_dupe_helper_sat_len_pred {α : Type} [DecidableEq α] (L : List α) :
+  first_dupe_helper L (L.length - 1) := by
+  unfold first_dupe_helper
+  intro h
+  absurd h; push_neg
+  exact le_refl _
+
+-- 'first_dupe_helper' can be satisfied
+lemma first_dupe_helper_is_sat {α : Type} [DecidableEq α] (L : List α) :
+  ∃ i, first_dupe_helper L i := ⟨L.length - 1, first_dupe_helper_sat_len_pred L⟩
+
 -- Find the first element which appears earlier in the list
 def find_first_dupe {α : Type} [DecidableEq α] (L : List α) (hnnil : L ≠ []) : Fin L.length :=
-  find_first (list_has_dupe_fin L) (Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil))
+  ⟨Nat.find (first_dupe_helper_is_sat L), by
+    apply Nat.lt_of_le_sub_one (List.length_pos_of_ne_nil hnnil)
+    exact Nat.find_min' (first_dupe_helper_is_sat L) (first_dupe_helper_sat_len_pred L)
+  ⟩
 
 -- Prove that the dupe found by 'find_first_dupe' is in-fact first
 -- Note that the second element of the pair is used to determine the order.
@@ -372,32 +389,61 @@ lemma first_dupe_is_first {α : Type} [DecidableEq α] (L : List α) (hdupe : li
   ∀ i j (ilt : i < j) (jlt : j < L.length), L[i]'(lt_trans ilt jlt) = L[j]'jlt →
   find_first_dupe L (list_ne_nil_of_has_dupes L hdupe) ≤ j := by
   intro i j ilt jlt hij
-  exact find_first_is_first _ _ (list_has_dupe_fin_of_dupe L i j ilt jlt hij)
+  apply Nat.find_min' (first_dupe_helper_is_sat L)
+  exact first_dupe_helper_of_dupe L i j ilt jlt hij
 
 -- Prove that the value at the location indicated by 'find_first_dupe' is
 -- in-fact a duplicate.
 lemma first_dupe_is_dupe {α : Type} [DecidableEq α] (L : List α) (hdupe : list_has_dupes L) :
   (fun (j : Fin L.length) ↦ ∃ (i : Nat) (ilt : i < j.val), L[i]'(lt_trans ilt j.2) = L[j])
   (find_first_dupe L (list_ne_nil_of_has_dupes L hdupe)) := by
-  have hnnil : L ≠ [] := list_ne_nil_of_has_dupes L hdupe
-  have lnz : L.length ≠ 0 :=
-    Nat.ne_zero_of_lt (List.length_pos_of_ne_nil hnnil)
-  let k := find_first (list_has_dupe_fin L) lnz
   dsimp
-  let ⟨i, j, ilt, jlt, hij⟩ := hdupe
-  have satex : ∃ x, list_has_dupe_fin L x := by
-    exact ⟨_, list_has_dupe_fin_of_dupe L i j ilt jlt hij⟩
-  have : list_has_dupe_fin L k := find_first_is_sat _ satex
-  rcases this with ⟨a, b, alt, blt, hab⟩
-  rw [List.length_take_of_le (Nat.add_one_le_of_lt k.2)] at blt
-  use a, lt_of_lt_of_le alt (Nat.le_of_lt_add_one blt)
-  rw [List.getElem_take, List.getElem_take] at hab
-  convert hab
-  unfold find_first_dupe
-  apply le_antisymm _ (Nat.le_of_lt_add_one blt)
-  have blt' : b < L.length :=
-    lt_of_le_of_lt (Nat.le_of_lt_add_one blt) k.2
-  exact first_dupe_is_first L hdupe a b alt blt' hab
+  have hnnil : L ≠ [] := list_ne_nil_of_has_dupes L hdupe
+  let j := (find_first_dupe L hnnil).val
+  have jlt : j < L.length := Fin.prop _
+  -- Define a function to find the location, 'i', of an element that matches
+  -- the one in location 'j'
+  let f : Nat → Prop := fun i ↦ (ile : i ≤ j) → L[i]'(lt_of_le_of_lt ile jlt) = L[j]
+  have fsatj : f j := by intro _; rfl
+  have fsat : ∃ i, f i := by use j
+  -- Define 'i' and show it has the desired properties (i ≤ j, L[i] = L[j])
+  let i := Nat.find fsat
+  have ilej : i ≤ j := Nat.find_min' fsat fsatj
+  have hij : L[i] = L[j] := Nat.find_spec fsat ilej
+  -- If at any point we find a duplicate that would
+  -- come before (i, j), it must actually be (i, j)
+  have : ∀ i' j' (i'lt : i' < j') (j'le : j' ≤ j),
+    L[i'] = L[j'] → j = j' := by
+    intro i' j' i'lt j'le h
+    by_contra! jnej'
+    have j'ltj := Nat.lt_of_le_of_ne j'le jnej'.symm
+    have j'nsat := Nat.find_min (first_dupe_helper_is_sat L) j'ltj
+    exact False.elim (j'nsat (first_dupe_helper_of_dupe L i' j' i'lt (lt_trans j'ltj jlt) h))
+  -- If there is no duplicate, j = L.length - 1, but that
+  -- is also a valid value for j, so handle that case first
+  by_cases jeq : j = L.length - 1
+  · -- If 'j' is at the end of the list, we can use the duplicate
+    -- indicated by 'hdupe' to satisfy the goal
+    rcases hdupe with ⟨i', j', i'lt, j'lt, h⟩
+    have j'lej := jeq ▸ (Nat.le_sub_one_of_lt j'lt)
+    have jeqj' := this i' j' i'lt j'lej h
+    use i', jeqj' ▸ i'lt
+    convert h
+  rename' jeq => jne; push_neg at jne
+  have jlt' : j < L.length - 1 := lt_of_le_of_ne (Nat.le_sub_one_of_lt jlt) jne
+  have inej : i ≠ j := by
+    by_contra! ieqj
+    -- If there is some other candiate duplicate,
+    -- we can use "this" to show that j = j'
+    rcases Nat.find_spec (first_dupe_helper_is_sat L) jlt' with ⟨i', j', i'lt, j'lt, h⟩
+    rw [List.getElem_take, List.getElem_take] at h
+    have j'lt' : j' < L.length := lt_of_lt_of_le j'lt (List.length_take_le' _ _)
+    have j'le : j' ≤ j :=
+      Nat.le_of_lt_add_one (lt_of_lt_of_le j'lt (List.length_take_le _ _))
+    have j'eq := this i' j' i'lt j'le h
+    apply Nat.find_min fsat (lt_of_lt_of_eq i'lt (Eq.trans j'eq.symm ieqj.symm))
+    intro _; convert h
+  use i, lt_of_le_of_ne ilej inej
 
 -- Taking the first 'n' elements from a list with duplicates
 -- results in a list of no duplicates if-and-only if
